@@ -723,6 +723,30 @@ class LiteralExpr(Expr):
             self.kind, self.string)
 
 
+class WhileExpr(Expr):
+    def __init__(self, while_token, left_paren, expression, right_paren,
+                 statement):
+        Expr.__init__(self, [expression, statement])
+        self.while_token = while_token
+        self.left_paren = left_paren
+        self.expression = expression
+        self.right_paren = right_paren
+        self.statement = statement
+
+    @property
+    def tokens(self):
+        tokens = [self.while_token, self.left_paren]
+        tokens += self.expression.tokens
+        tokens += [right_paren]
+        tokens += self.statement.tokens
+        return tokens
+
+    def __str__(self):
+        s = 'while (' + str(self.expression) + ')\n'
+        s += str(self.statement)
+        return s
+
+
 class IfExpr(Expr):
     def __init__(self, if_token, left_paren, expression, right_paren,
                  statement, else_token, else_statement):
@@ -1111,13 +1135,15 @@ def parse_argument_expression_list(reader):
 def parse_postfix_expression(reader):
     left = parse_primary_expression(reader)
     while True:
-        op = parse_sign(reader, '('.split())
+        op = parse_sign(reader, '( ++ --'.split())
         if op is None:
             break
         if op.string == '(':
             arguments = parse_argument_expression_list(reader)
             right_paren = expect_sign(reader, ')')
             return CallExpr(left, op.string, arguments, right_paren)
+        elif op.string in '++ --'.split():
+            return UnaryOperationExpr(op, left)
         else:
             raise Exception()
     return left
@@ -1131,10 +1157,14 @@ def parse_unary_operator(reader):
 
 def parse_unary_expression(reader):
     op = parse_unary_operator(reader)
-    expr = parse_postfix_expression(reader)
-    if op is not None:
+    if op is None:
+        op = parse_sign(reader, '-- ++'.split())
+        if op is None:
+            return parse_postfix_expression(reader)
+        expr = parse_unary_expression(reader)
         return UnaryOperationExpr(op, expr)
-    return expr
+    expr = parse_cast_expression(reader)
+    return UnaryOperationExpr(op, expr)
 
 
 def parse_binary_operation(reader, operators, sub_function):
@@ -1269,6 +1299,25 @@ def parse_selection_statement(reader):
                   else_token, else_statement)
 
 
+def parse_iteration_statement(reader):
+    token = parse_keyword(reader, 'do for'.split())
+    if token is not None:
+        raise SyntaxError("'do' and 'for' statements are not implemented",
+                          reader.position)
+    while_token = parse_keyword(reader, 'while'.split())
+    if while_token is None:
+        return None
+    left_paren = expect_sign(reader, '(')
+    expr = parse_expression(reader)
+    if expr is None:
+        raise SyntaxError('Expected expression', reader.position)
+    right_paren = expect_sign(reader, ')')
+    statement = parse_statement(reader)
+    if statement is None:
+        raise SyntaxError('Expected statement', reader.position)
+    return WhileExpr(while_token, left_paren, expr, right_paren, statement)
+
+
 def parse_statement(reader):
     s = parse_compound_statement(reader)
     if s is not None:
@@ -1277,6 +1326,9 @@ def parse_statement(reader):
     if s is not None:
         return s
     s = parse_selection_statement(reader)
+    if s is not None:
+        return s
+    s = parse_iteration_statement(reader)
     if s is not None:
         return s
     return None
@@ -1360,17 +1412,17 @@ def main():
 
         'int *const *b;',
 
-#        'long unsigned register int b, c;',
-#        'const volatile int b, c = 1;',
-#        'int **b, *c = 1;',
-#        'int main(int argc, char **argv);',
-#        'void f(void);',
-#        'int (*f)(void);',
-#        'int (*getFunc())(int, int (*b)(long));',
-#        'int (*a)();',
-#
-#        'int (*getFunc())(int, int (*)(long));',
-#        'int (*getFunc())(int, int (*)(long)) {}',
+        'long unsigned register int b, c;',
+        'const volatile int b, c = 1;',
+        'int **b, *c = 1;',
+        'int main(int argc, char **argv);',
+        'void f(void);',
+        'int (*f)(void);',
+        'int (*getFunc())(int, int (*b)(long));',
+        'int (*a)();',
+
+        'int (*getFunc())(int, int (*)(long));',
+        'int (*getFunc())(int, int (*)(long)) {}',
 
         'main() {}',
 
@@ -1382,6 +1434,11 @@ def main():
 
         void my_putstr(const char *string)
         {
+          while (*string)
+            {
+              my_putchar(*string);
+              string++;
+            }
         }
         ''',
     ]
