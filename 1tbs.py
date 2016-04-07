@@ -439,8 +439,8 @@ class Expr:
         raise Exception('Not implemented')
 
     def __repr__(self):
-        s = '<{} children={}>'.format(self.__class__.__name__,
-                             self.children)
+        class_name = self.__class__.__name__
+        s = '<{} children={}>'.format(class_name, self.children)
         return s
 
 
@@ -1050,8 +1050,50 @@ def parse_unary_expression(reader):
     return parse_postfix_expression(reader)
 
 
-def parse_equality_expression(reader):
+def parse_binary_operation(reader, operators, sub_function):
+    """
+    operators: a string or a list of strings
+    sub_function: a function
+    """
+
+    if isinstance(operators, str):
+        operators = operators.split()
+    left = sub_function(reader)
+    while True:
+        op = parse_sign(reader, operators)
+        if op is None:
+            break
+        left = BinaryOperationExpr(left, op, sub_function(reader))
+    return left
+
+
+def parse_cast_expression(reader):
     return parse_unary_expression(reader)
+
+
+def parse_multiplicative_expression(reader):
+    return parse_binary_operation(reader, '* / %',
+                                  parse_cast_expression)
+
+
+def parse_additive_expression(reader):
+    return parse_binary_operation(reader, '+ -',
+                                  parse_multiplicative_expression)
+
+
+def parse_shift_expression(reader):
+    return parse_binary_operation(reader, '>> <<',
+                                  parse_additive_expression)
+
+
+def parse_relational_expression(reader):
+    return parse_binary_operation(reader, '< > <= >=',
+                                  parse_shift_expression)
+
+
+def parse_equality_expression(reader):
+    return parse_binary_operation(reader, '== !=',
+                                  parse_relational_expression)
 
 
 def parse_logical_or_expression(reader):
@@ -1088,7 +1130,6 @@ def parse_assignment_expression(reader):
     left = parse_conditional_expression(reader)
     if left is None:
         return None
-    print('>>>', left)
     left_end = reader.index
     reader.index = begin
     assign = parse_assignment_expression_2(reader)
@@ -1186,9 +1227,12 @@ def parse(v):
 def main():
     unittest.main(exit=False)
 
+    # 'int printf(const char *format, ...)',
+
     sources = [
         'void f(long a) {}',
-        'void f(short b) {char *a, c; int c; a = 0;}',
+        'void f(short b) {char *a, c; int c; 7 += a;}',
+        'int main() {if (a < b) a;}',
         'char *strdup(const char *);',
         'char (*strdup)(const char *);',
 
@@ -1197,18 +1241,17 @@ def main():
 
         'int *const *b;',
 
-        'long unsigned register int b, c;',
-        'const volatile int b, c = 1;',
-        'int **b, *c = 1;',
-        'int main(int argc, char **argv);',
-#        'int printf(const char *format, ...)',
-        'void f(void);',
-        'int (*f)(void);',
-        'int (*getFunc())(int, int (*b)(long));',
-        'int (*a)();',
-
-        'int (*getFunc())(int, int (*)(long));',
-        'int (*getFunc())(int, int (*)(long)) {}',
+#        'long unsigned register int b, c;',
+#        'const volatile int b, c = 1;',
+#        'int **b, *c = 1;',
+#        'int main(int argc, char **argv);',
+#        'void f(void);',
+#        'int (*f)(void);',
+#        'int (*getFunc())(int, int (*b)(long));',
+#        'int (*a)();',
+#
+#        'int (*getFunc())(int, int (*)(long));',
+#        'int (*getFunc())(int, int (*)(long)) {}',
     ]
     for source in sources:
         print(source)
