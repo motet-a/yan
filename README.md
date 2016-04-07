@@ -1,4 +1,4 @@
-# 1TBS - The One True Bocal Style checker
+# 1TBS — The One True Bocal Style checker
 
 **Work in progress**
 
@@ -9,3 +9,14 @@ But unlike the "official" one, this style checker is not a buch of crappy
 regex getting so easily confused.
 The 1TBS checker is based on a carefully designed tokenizer and an
 authentic hand-written recursive descent parser.
+
+## TODO
+
+A lot of work.
+
+The parser can already process complex declarations like these ones:
+
+```
+int *const *b;
+int (*getFunc())(int, int (*)(long));
+```
