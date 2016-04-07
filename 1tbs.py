@@ -234,7 +234,7 @@ def get_lexer_spec():
         ('float_b',             r'\d+\.\d*' + float_suffix),
         ('integer_hex',         r'0[xX]' + hex_digits + int_suffix),
         ('integer',             r'\d+' + int_suffix),
-        ('identifier',          r'[_A-Za-z]+'),
+        ('identifier',          r'[_A-Za-z][_A-Za-z0-9]*'),
         ('sign',                signs),
         ('__newline__',         r'\n'),
         ('__skip__',            r'[ \t]+'),
@@ -704,8 +704,38 @@ class LiteralExpr(Expr):
 
 
 class IfExpr(Expr):
-    def __init__(self, condition):
-        pass
+    def __init__(self, if_token, left_paren, expression, right_paren,
+                 statement, else_token, else_statement):
+        children = [expression, statement]
+        if else_statement is not None:
+            children.append(else_statement)
+        Expr.__init__(self, children)
+        self.if_token = if_token
+        self.left_paren = left_paren
+        self.expression = expression
+        self.right_paren = right_paren
+        self.statement = statement
+        self.else_token = else_token
+        self.else_statement = else_statement
+
+    @property
+    def tokens(self):
+        tokens = [self.if_token, self.left_paren]
+        tokens += self.expression.tokens
+        tokens += [right_paren]
+        tokens += self.statement.tokens
+        if self.else_token is not None:
+            tokens.append(self.else_token)
+            tokens += self.else_statement.tokens
+        return tokens
+
+    def __str__(self):
+        s = 'if (' + str(self.expression) + ')\n'
+        s += str(self.statement)
+        if self.else_token is not None:
+            s += '\nelse\n'
+            s += str(self.else_statement)
+        return s
 
 
 class TranslationUnitExpr(Expr):
@@ -1153,11 +1183,43 @@ def parse_expression_statement(reader):
     return StatementExpr(expr, expect_sign(reader, ';'))
 
 
+def parse_selection_statement(reader):
+    switch_token = parse_keyword(reader, ['switch'])
+    if switch_token is not None:
+        raise SyntaxError("The 'switch' statement is not implemented",
+                          reader.position)
+
+    if_token = parse_keyword(reader, ['if'])
+    if if_token is None:
+        return None
+    left_paren = expect_sign(reader, '(')
+    expr = parse_expression(reader)
+    if expr is None:
+        raise SyntaxError('Expected expression', reader.position)
+    right_paren = expect_sign(reader, ')')
+    statement = parse_statement(reader)
+    if statement is None:
+        raise SyntaxError('Expected statement', reader.position)
+
+    else_statement = None
+    else_token = parse_keyword(reader, ['else'])
+    if else_token is not None:
+        else_statement = parse_statement(reader)
+        if else_statement is None:
+            raise SyntaxError("Expected statement after 'else'",
+                              reade.position)
+    return IfExpr(if_token, left_paren, expr, right_paren, statement,
+                  else_token, else_statement)
+
+
 def parse_statement(reader):
     s = parse_compound_statement(reader)
     if s is not None:
         return s
     s = parse_expression_statement(reader)
+    if s is not None:
+        return s
+    s = parse_selection_statement(reader)
     if s is not None:
         return s
     return None
@@ -1252,6 +1314,15 @@ def main():
 #
 #        'int (*getFunc())(int, int (*)(long));',
 #        'int (*getFunc())(int, int (*)(long)) {}',
+
+        'main() {}',
+
+        '''
+        void my_putchar(char c)
+        {
+          write(STDOUT_FILENO, c, 1);
+        }
+        ''',
     ]
     for source in sources:
         print(source)
