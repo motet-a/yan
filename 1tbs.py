@@ -681,18 +681,23 @@ class PointerExpr(Expr):
 
 
 class UnaryOperationExpr(Expr):
-    def __init__(self, operator, right):
+    def __init__(self, operator, right, postfix=False):
+        if postfix:
+            assert operator.string in '++ --'.split()
         assert isinstance(operator, Token)
         assert isinstance(right, Expr)
         Expr.__init__(self, [right])
         self.operator = operator
         self.right = right
+        self.postfix = postfix
 
     @property
     def tokens(self):
         return [self.operator] + self.right.tokens
 
     def __str__(self):
+        if self.postfix:
+            return "({}{})".format(self.right, self.operator.string)
         return "({}{})".format(self.operator.string, self.right)
 
 
@@ -1143,7 +1148,7 @@ def parse_postfix_expression(reader):
             right_paren = expect_sign(reader, ')')
             return CallExpr(left, op.string, arguments, right_paren)
         elif op.string in '++ --'.split():
-            return UnaryOperationExpr(op, left)
+            return UnaryOperationExpr(op, left, postfix=True)
         else:
             raise Exception()
     return left
