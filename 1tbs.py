@@ -477,26 +477,92 @@ class ParameterExpr(Expr):
 
 
 class FunctionExpr(Expr):
-    def __init__(self, specifiers_tokens, declarator, parameters):
-        assert isinstance(specifiers_tokens, list)
+    """
+    A function
+    """
+
+    def __init__(self, declarator, parameters):
         assert isinstance(declarator, Expr)
         assert isinstance(parameters, ParameterListExpr)
         Expr.__init__(self, [declarator, parameters])
-        self.specifiers_tokens = specifiers_tokens
         self.declarator = declarator
         self.parameters = parameters
 
     @property
     def tokens(self):
+        return (self.declarator.tokens +
+                self.parameters.tokens)
+
+    def __str__(self):
+        return '{}{}'.format(self.declarator, self.parameters)
+
+
+class CompoundExpr(Expr):
+    """
+    A compound expression.
+    Starts with a '{' and ends with a '}'
+    """
+
+    def __init__(self, left_brace, declarations, statements, right_brace):
+        assert isinstance(left_brace, Token)
+        assert isinstance(declarations, list)
+        assert isinstance(statements, list)
+        assert isinstance(right_brace, Token)
+        Expr.__init__(self, declarations + statements)
+        self.left_brace = left_brace
+        self.declarations = declarations
+        self.statements = statements
+        self.right_brace = right_brace
+
+    @property
+    def tokens(self):
+        return ([self.left_brace] +
+                self.declarations.tokens +
+                self.statements.tokens +
+                [self.rigth_brace])
+
+    def __str__(self):
+        s = '{\n'
+        if len(self.declarations) > 0:
+            s += '\n'.join(str(d) for d in self.declarations)
+        s += '\n'.join(str(s) for d in self.statements)
+        s += '}\n'
+        return s
+
+
+class FunctionDefinitionExpr(Expr):
+    """
+    A function definition
+    """
+
+    def __init__(self, specifiers_tokens, declarator, compound):
+        assert isinstance(specifiers_tokens, list)
+        assert isinstance(declarator, FunctionExpr)
+        assert isinstance(declarator.parameters, ParameterListExpr)
+        assert isinstance(compound, CompoundExpr)
+
+        Expr.__init__(self, [declarator, compound])
+        self.specifiers_tokens = specifiers_tokens
+        self.declarator = declarator
+        self.compound = compound
+
+    @property
+    def parameters(self):
+        return self.declarator.parameters
+
+    @property
+    def tokens(self):
         return (self.specifiers_tokens +
                 self.declarator.tokens +
-                self.parameters.tokens)
+                self.compound)
 
     def __str__(self):
         s = ' '.join(t.string for t in self.specifiers_tokens)
         if len(s) > 0:
             s += ' '
-        return s + '{}{}'.format(self.declarator, self.parameters)
+        s += str(self.declarator)
+        s += '\n' + str(self.compound)
+        return s
 
 
 class DeclarationExpr(Expr):
@@ -761,7 +827,7 @@ def parse_direct_abstract_declarator(reader):
             params = parse_parameter_type_list(reader)
             if params is None:
                 return left
-            return FunctionExpr([], left, params)
+            return FunctionExpr(left, params)
         left = decl
 
 
@@ -783,7 +849,7 @@ def parse_direct_declarator(reader, abstract=False):
         if parameter_list is None:
             break
         else:
-            left = FunctionExpr([], left, parameter_list)
+            left = FunctionExpr(left, parameter_list)
     return left
 
 
@@ -914,16 +980,60 @@ def parse_declaration_specifiers(reader):
 
 
 def parse_declaration(reader):
+    begin = reader.index
     specifiers = parse_declaration_specifiers(reader)
     if len(specifiers) == 0:
         return None
     declarators = parse_init_declarator_list(reader)
-    semicolon = expect_sign(reader, ";")
+    semicolon = parse_sign(reader, ";")
+    if semicolon is None:
+        reader.index = begin
+        return None
     return DeclarationExpr(specifiers, declarators, semicolon)
 
 
+def parse_declaration_list(reader):
+    declarations = []
+    while True:
+        decl = parse_declaration(reader)
+        if decl is None:
+            break
+        declarations.append(decl)
+    return declarations
+
+
+def parse_statement_list(reader):
+    return []
+
+
+def parse_compound_statement(reader):
+    left_brace = parse_sign(reader, '{')
+    if left_brace is None:
+        return None
+    declarations = parse_declaration_list(reader)
+    statements = parse_statement_list(reader)
+    right_brace = expect_sign(reader, '}')
+    return CompoundExpr(left_brace, declarations, statements, right_brace)
+
+
+def parse_function_definition(reader):
+    specifiers = parse_declaration_specifiers(reader)
+    declarator = parse_declarator(reader)
+    if declarator is None:
+        if len(specifiers) == 0:
+            return None
+        raise SyntaxError('Expected declarator', reader.position)
+    compound = parse_compound_statement(reader)
+    if compound is None:
+        raise SyntaxError('Expected coumpound statement', reader.position)
+    return FunctionDefinitionExpr(specifiers, declarator, compound)
+
+
 def parse_external_declaration(reader):
-    return parse_declaration(reader)
+    decl = parse_declaration(reader)
+    if decl is not None:
+        return decl
+    return parse_function_definition(reader)
 
 
 def parse_translation_unit(reader):
@@ -951,6 +1061,8 @@ def main():
     unittest.main(exit=False)
 
     sources = [
+        'void f(long a) {}',
+        'void f(short b) {char *a, b;}',
         'char *strdup(const char *);',
         'char (*strdup)(const char *);',
 
@@ -972,6 +1084,7 @@ def main():
         'int (*a)();',
 
         'int (*getFunc())(int, int (*)(long));',
+        'int (*getFunc())(int, int (*)(long)) {}',
     ]
     for source in sources:
         print(source)
