@@ -3,6 +3,8 @@
 import unittest
 import collections
 import re
+import sys
+import argparse
 
 
 class Position:
@@ -68,6 +70,7 @@ TOKEN_KINDS = [
     'sign',
     'keyword',
     'comment',
+    'directive',
 ]
 
 
@@ -226,8 +229,14 @@ def get_lexer_spec():
             sign = '\\' + sign
         signs += sign
     signs = '(' + signs + ')'
+
+    directive_list = ('include|define|undef|'
+                      'ifdef|ifndef|if|else|elif|endif|'
+                      'error|pragma')
+    directives = r'(^|\n)[ \t]*#[ \t]*(' + directive_list + r').*'
+
     return [
-        ('comment',             r'/\*(.|\n)*\*/'),
+        ('comment',             r'/\*(\*(?!\/)|[^*])*\*/'),
         ('string',              r'"(\\.|[^\n\\"])*"'),
         ('character',           r"'(\\.|[^\n\\'])*'"),
         ('float_a',             r'\d*\.\d+' + float_suffix),
@@ -236,6 +245,7 @@ def get_lexer_spec():
         ('integer',             r'\d+' + int_suffix),
         ('identifier',          r'[_A-Za-z][_A-Za-z0-9]*'),
         ('sign',                signs),
+        ('directive',           directives),
         ('__newline__',         r'\n'),
         ('__skip__',            r'[ \t]+'),
         ('__mismatch__',        r'.'),
@@ -263,9 +273,11 @@ def lex_token(source_string, file_name):
         position = Position(file_name, mo.end(),
                             position.line, position.column + len(string))
 
-        if kind == '__newline__':
+        if kind == '__newline__' or (kind == 'directive' and
+                                     string[0] == '\n'):
             position = Position(file_name, mo.end(), position.line + 1)
-            continue
+            if kind == '__newline__':
+                continue
 
         if kind == '__skip__':
             pass
@@ -278,6 +290,9 @@ def lex_token(source_string, file_name):
                 kind = 'float'
             elif kind == 'identifier' and string in KEYWORDS:
                 kind = 'keyword'
+            if kind == 'directive' and string[0] == '\n':
+                string = string[1:]
+                begin = Position(file_name, begin.index + 1, begin.line + 1)
             yield Token(kind, string, begin, end)
 
 
@@ -401,6 +416,12 @@ class TestLexer(unittest.TestCase):
 
     def test_sign(self):
         self.assertTokenEqual('++', 'sign', '++')
+
+    def test_directive(self):
+        self.assertTokenEqual('#ifdef a', 'directive', '#ifdef a')
+        self.assertTokenEqual('\n#ifdef a', 'directive', '#ifdef a')
+        self.assertTokenEqual('\n  #  include <a> \n ',
+                              'directive', '  #  include <a> ')
 
 
 class Expr:
@@ -566,9 +587,11 @@ class FunctionDefinitionExpr(Expr):
     """
 
     def __init__(self, specifiers_tokens, declarator, compound):
+        """
+        Warning: if the function returns a pointer, `declarator`
+        is a PointerExpr.
+        """
         assert isinstance(specifiers_tokens, list)
-        assert isinstance(declarator, FunctionExpr)
-        assert isinstance(declarator.parameters, ParameterListExpr)
         assert isinstance(compound, CompoundExpr)
 
         Expr.__init__(self, [declarator, compound])
@@ -576,9 +599,21 @@ class FunctionDefinitionExpr(Expr):
         self.declarator = declarator
         self.compound = compound
 
+        assert isinstance(self.function, FunctionExpr)
+
+    @property
+    def function(self):
+        decl = self.declarator
+        while not isinstance(decl, FunctionExpr):
+            if isinstance(decl, PointerExpr):
+                decl = decl.right
+            else:
+                raise Exception()
+        return decl
+
     @property
     def parameters(self):
-        return self.declarator.parameters
+        return self.function.parameters
 
     @property
     def tokens(self):
@@ -981,6 +1016,8 @@ def parse_declarator(reader, abstract=False):
 
 
 def parse_primary_token(reader):
+    if not reader.has_more:
+        return None
     begin = reader.index
     token = reader.next()
     if token.kind in 'identifier integer float string character'.split():
@@ -1009,7 +1046,7 @@ def parse_initializer_list(reader):
 
 
 def parse_initializer(reader):
-    return parse_primary_expression(reader)
+    return parse_assignment_expression(reader)
 
 
 def parse_init_declarator(reader):
@@ -1018,7 +1055,7 @@ def parse_init_declarator(reader):
     """
     declarator = parse_declarator(reader)
     eq = parse_sign(reader, '=')
-    if eq is not None:
+    if declarator is not None and eq is not None:
         initializer = parse_initializer(reader)
         if initializer is None:
             raise SyntaxError('Initializer expected', reader.position)
@@ -1159,6 +1196,7 @@ def parse_unary_operator(reader):
     Returns a token or None
     """
     return parse_sign(reader, '& * + - ~ !'.split())
+
 
 def parse_unary_expression(reader):
     op = parse_unary_operator(reader)
@@ -1391,20 +1429,38 @@ def parse_translation_unit(reader):
     return TranslationUnitExpr(declarations)
 
 
+def remove_comments_and_directives(tokens):
+    new_tokens = []
+    for token in tokens:
+        if token.kind not in 'comment directive'.split():
+            new_tokens.append(token)
+    return new_tokens
+
+
 def parse(v):
     if isinstance(v, str):
-        return parse(lex(v))
+        return parse(remove_comments_and_directives(lex(v)))
     if isinstance(v, list):
         return parse(TokenReader(v))
     assert isinstance(v, TokenReader)
     return parse_translation_unit(v)
 
 
-def main():
-    unittest.main(exit=False)
+def get_argument_parser():
+    descr = 'Check your C programs against the "EPITECH norm".'
+    parser = argparse.ArgumentParser(description=descr)
+    parser.add_argument('source_files',
+                        nargs='*', type=argparse.FileType('r'),
+                        help='source files to check')
+    parser.add_argument('--test', action='store_true',
+                        help='run the tests')
+    return parser
 
-    # 'int printf(const char *format, ...)',
 
+def test():
+    unittest.main(exit=False, argv=sys.argv[:1])
+
+    # TODO: Write real tests
     sources = [
         'void f(long a) {}',
         'void f(short b) {char *a, c; int c; 7 += a;}',
@@ -1432,6 +1488,8 @@ def main():
         'main() {}',
 
         '''
+        #include <unistd.h>
+
         void my_putchar(char c)
         {
           write(STDOUT_FILENO, &c, 1);
@@ -1446,10 +1504,30 @@ def main():
             }
         }
         ''',
+
+        '/**/',
     ]
     for source in sources:
         print(source)
-        print(str(parse(source)))
+        print(parse(source))
+
+
+def check_file(source_file):
+    source = source_file.read()
+    tokens = lex(source)
+    print('\n'.join(repr(t) for t in tokens))
+    print(parse(source))
+
+
+def main():
+    argument_parser = get_argument_parser()
+    args = argument_parser.parse_args()
+    if args.test:
+        test()
+        return
+    for source_file in args.source_files:
+        check_file(source_file)
+        source_file.close()
 
 
 if __name__ == '__main__':
