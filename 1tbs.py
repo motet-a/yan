@@ -554,7 +554,7 @@ class CompoundExpr(Expr):
         s = '{\n'
         if len(self.declarations) > 0:
             s += ''.join(str(d) for d in self.declarations)
-        s += '\n'
+            s += '\n'
         s += '\n'.join(str(s) for s in self.statements)
         s += '\n}\n'
         return s
@@ -635,6 +635,25 @@ class BinaryOperationExpr(Expr):
                                    self.right)
 
 
+class CallExpr(Expr):
+    def __init__(self, expression, left_paren, arguments, right_paren):
+        Expr.__init__(self, [expression] + arguments)
+        self.expression = expression
+        self.left_paren = left_paren
+        self.arguments = arguments
+        self.right_paren = right_paren
+
+    @property
+    def tokens(self):
+        return (self.expression.tokens +
+                [self.left_paren] + self.arguments + [self.right_paren])
+
+    def __str__(self):
+        s = str(self.expression)
+        s += '(' + ', '.join(str(a) for a in self.arguments) + ')'
+        return s
+
+
 class PointerExpr(Expr):
     def __init__(self, star, right, type_qualifiers):
         assert(star.string == '*')
@@ -663,8 +682,9 @@ class PointerExpr(Expr):
 
 class UnaryOperationExpr(Expr):
     def __init__(self, operator, right):
+        assert isinstance(operator, Token)
         assert isinstance(right, Expr)
-        Expr.__init__(self, right)
+        Expr.__init__(self, [right])
         self.operator = operator
         self.right = right
 
@@ -1072,12 +1092,49 @@ def parse_declaration_list(reader):
     return declarations
 
 
-def parse_postfix_expression(reader):
-    return parse_primary_expression(reader)
+def parse_argument_expression_list(reader):
+    arguments = []
+    while True:
+        if len(arguments) > 0:
+            comma = parse_sign(reader, ',')
+            if comma is None:
+                break
+        argument = parse_assignment_expression(reader)
+        if argument is None:
+            if len(arguments) == 0:
+                break
+            raise SyntaxError('Expected argument', reader.position)
+        arguments.append(argument)
+    return arguments
 
+
+def parse_postfix_expression(reader):
+    left = parse_primary_expression(reader)
+    while True:
+        op = parse_sign(reader, '('.split())
+        if op is None:
+            break
+        if op.string == '(':
+            arguments = parse_argument_expression_list(reader)
+            right_paren = expect_sign(reader, ')')
+            return CallExpr(left, op.string, arguments, right_paren)
+        else:
+            raise Exception()
+    return left
+
+
+def parse_unary_operator(reader):
+    """
+    Returns a token or None
+    """
+    return parse_sign(reader, '& * + - ~ !'.split())
 
 def parse_unary_expression(reader):
-    return parse_postfix_expression(reader)
+    op = parse_unary_operator(reader)
+    expr = parse_postfix_expression(reader)
+    if op is not None:
+        return UnaryOperationExpr(op, expr)
+    return expr
 
 
 def parse_binary_operation(reader, operators, sub_function):
@@ -1207,7 +1264,7 @@ def parse_selection_statement(reader):
         else_statement = parse_statement(reader)
         if else_statement is None:
             raise SyntaxError("Expected statement after 'else'",
-                              reade.position)
+                              reader.position)
     return IfExpr(if_token, left_paren, expr, right_paren, statement,
                   else_token, else_statement)
 
@@ -1320,7 +1377,11 @@ def main():
         '''
         void my_putchar(char c)
         {
-          write(STDOUT_FILENO, c, 1);
+          write(STDOUT_FILENO, &c, 1);
+        }
+
+        void my_putstr(const char *string)
+        {
         }
         ''',
     ]
