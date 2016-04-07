@@ -202,6 +202,13 @@ SIGNS = """
 
 
 def get_lexer_spec():
+    """
+    Returns an array of regexps which represents the "grammar"
+    of the lexer.
+
+    This is quite unintelligible.
+    """
+
     int_suffix = r'[uUlL]*'
     float_suffix = r'[fFlL]?'
     e_suffix = '[Ee][+-]?\d+'
@@ -467,13 +474,35 @@ class ParameterExpr(Expr):
 
     @property
     def tokens(self):
-        return (self.specifiers_tokens + self.declarator.tokens)
+        return self.specifiers_tokens + self.declarator.tokens
 
     def __str__(self):
         specifiers = ' '.join(t.string for t in self.specifiers_tokens)
         if self.declarator is None:
             return specifiers
         return "{} {}".format(specifiers, self.declarator)
+
+
+class StatementExpr(Expr):
+    def __init__(self, expression, semicolon):
+        if expression is not None:
+            assert isinstance(expression, Expr)
+        assert isinstance(semicolon, Token)
+        Expr.__init__(self, [] if expression is None else [expression])
+        self.expression = expression
+        self.semicolon = semicolon
+
+    @property
+    def tokens(self):
+        t = []
+        if self.expression is not None:
+            t += self.expression.tokens
+        return t + [self.semicolon]
+
+    def __str__(self):
+        if self.expression is None:
+            return ';'
+        return str(self.expression) + ';'
 
 
 class FunctionExpr(Expr):
@@ -524,9 +553,10 @@ class CompoundExpr(Expr):
     def __str__(self):
         s = '{\n'
         if len(self.declarations) > 0:
-            s += '\n'.join(str(d) for d in self.declarations)
-        s += '\n'.join(str(s) for d in self.statements)
-        s += '}\n'
+            s += ''.join(str(d) for d in self.declarations)
+        s += '\n'
+        s += '\n'.join(str(s) for s in self.statements)
+        s += '\n}\n'
         return s
 
 
@@ -743,6 +773,8 @@ def parse_keyword(reader, keyword_list=None):
 
 
 def parse_sign(reader, sign_list=None):
+    if sign_list is None:
+        sign_list = []
     for sign in sign_list:
         assert sign in SIGNS
     return parse_token(reader, 'sign', sign_list)
@@ -872,17 +904,25 @@ def parse_declarator(reader, abstract=False):
 def parse_primary_token(reader):
     begin = reader.index
     token = reader.next()
-    if token.kind in 'integer float string character'.split():
+    if token.kind in 'identifier integer float string character'.split():
         return token
     reader.index = begin
     return None
 
 
+def parse_paren_expression(reader):
+    left_paren = parse_sign(reader, '(')
+    if left_paren is None:
+        return None
+    expr = parse_expression(reader)
+    return ParenExpr(left_paren, expr, expect_sign(reader, ')'))
+
+
 def parse_primary_expression(reader):
     token = parse_primary_token(reader)
-    if token is None:
-        return None
-    return LiteralExpr(token)
+    if token is not None:
+        return LiteralExpr(token)
+    return parse_paren_expression(reader)
 
 
 def parse_initializer_list(reader):
@@ -1002,8 +1042,94 @@ def parse_declaration_list(reader):
     return declarations
 
 
+def parse_postfix_expression(reader):
+    return parse_primary_expression(reader)
+
+
+def parse_unary_expression(reader):
+    return parse_postfix_expression(reader)
+
+
+def parse_equality_expression(reader):
+    return parse_unary_expression(reader)
+
+
+def parse_logical_or_expression(reader):
+    return parse_equality_expression(reader)
+
+
+def parse_conditional_expression(reader):
+    return parse_logical_or_expression(reader)
+
+
+def parse_assignment_operator(reader):
+    """
+    Returns an assignment operator or None
+    """
+    ops = '= *= /= %= += -= <<= >>= &= ^= |='.split()
+    return parse_sign(reader, ops)
+
+
+def parse_assignment_expression_2(reader):
+    begin = reader.index
+    unary = parse_unary_expression(reader)
+    if unary is None:
+        return None
+    op = parse_assignment_operator(reader)
+    if op is None:
+        reader.index = begin
+        return None
+    right = parse_assignment_expression(reader)
+    return BinaryOperationExpr(unary, op, right)
+
+
+def parse_assignment_expression(reader):
+    begin = reader.index
+    left = parse_conditional_expression(reader)
+    if left is None:
+        return None
+    print('>>>', left)
+    left_end = reader.index
+    reader.index = begin
+    assign = parse_assignment_expression_2(reader)
+    if assign is None:
+        reader.index = left_end
+        return left
+    return assign
+
+
+def parse_expression(reader):
+    return parse_assignment_expression(reader)
+
+
+def parse_expression_statement(reader):
+    semicolon = parse_sign(reader, ';')
+    if semicolon is not None:
+        return StatementExpr(None, semicolon)
+    expr = parse_expression(reader)
+    if expr is None:
+        return None
+    return StatementExpr(expr, expect_sign(reader, ';'))
+
+
+def parse_statement(reader):
+    s = parse_compound_statement(reader)
+    if s is not None:
+        return s
+    s = parse_expression_statement(reader)
+    if s is not None:
+        return s
+    return None
+
+
 def parse_statement_list(reader):
-    return []
+    statements = []
+    while True:
+        statement = parse_statement(reader)
+        if statement is None:
+            break
+        statements.append(statement)
+    return statements
 
 
 def parse_compound_statement(reader):
@@ -1062,7 +1188,7 @@ def main():
 
     sources = [
         'void f(long a) {}',
-        'void f(short b) {char *a, b;}',
+        'void f(short b) {char *a, c; int c; a = 0;}',
         'char *strdup(const char *);',
         'char (*strdup)(const char *);',
 
@@ -1074,8 +1200,6 @@ def main():
         'long unsigned register int b, c;',
         'const volatile int b, c = 1;',
         'int **b, *c = 1;',
-        'int main();',
-        'int main(int a);',
         'int main(int argc, char **argv);',
 #        'int printf(const char *format, ...)',
         'void f(void);',
