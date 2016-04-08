@@ -233,7 +233,7 @@ def get_lexer_spec():
     directive_list = ('include|define|undef|'
                       'ifdef|ifndef|if|else|elif|endif|'
                       'error|pragma')
-    directives = r'(^|\n)[ \t]*#[ \t]*(' + directive_list + r').*'
+    directives = r'(^|(?<=\n))[ \t]*#[ \t]*(' + directive_list + r').*'
 
     return [
         ('comment',             r'/\*(\*(?!\/)|[^*])*\*/'),
@@ -270,14 +270,16 @@ def lex_token(source_string, file_name):
                          position.line, position.column)
         end = Position(file_name, mo.end(),
                        position.line, position.column + len(string) - 1)
-        position = Position(file_name, mo.end(),
-                            position.line, position.column + len(string))
+        position = Position(file_name, end.index, end.line, end.column + 1)
 
-        if kind == '__newline__' or (kind == 'directive' and
-                                     string[0] == '\n'):
+        if kind == '__newline__':
             position = Position(file_name, mo.end(), position.line + 1)
-            if kind == '__newline__':
-                continue
+            continue
+        elif kind == 'comment' and '\n' in string:
+            end_line = position.line + string.count('\n')
+            end_column = len(string) - string.rindex('\n')
+            end = Position(file_name, mo.end(), end_line, end_column)
+            position = Position(file_name, mo.end(), end_line, end_column + 1)
 
         if kind == '__skip__':
             pass
@@ -290,9 +292,6 @@ def lex_token(source_string, file_name):
                 kind = 'float'
             elif kind == 'identifier' and string in KEYWORDS:
                 kind = 'keyword'
-            if kind == 'directive' and string[0] == '\n':
-                string = string[1:]
-                begin = Position(file_name, begin.index + 1, begin.line + 1)
             yield Token(kind, string, begin, end)
 
 
@@ -591,6 +590,7 @@ class FunctionDefinitionExpr(Expr):
         Warning: if the function returns a pointer, `declarator`
         is a PointerExpr.
         """
+
         assert isinstance(specifiers_tokens, list)
         assert isinstance(compound, CompoundExpr)
 
@@ -630,6 +630,48 @@ class FunctionDefinitionExpr(Expr):
         return s
 
 
+class TypeExpr(Expr):
+    def __init__(self, specifiers_tokens, declarator):
+        Expr.__init__(self, [] if declarator is None else [declarator])
+        self.specifiers_tokens = specifiers_tokens
+        self.declarator = declarator
+
+    @property
+    def tokens(self):
+        tokens = self.specifiers_tokens[:]
+        if self.declarator is not None:
+            tokens += self.declarator.tokens
+        return tokens
+
+    def __str__(self):
+        s = ' '.join(t.string for t in self.specifiers_tokens)
+        if self.declarator is not None:
+            s += ' ' + str(self.declarator)
+        return s
+
+
+class CastExpr(Expr):
+    def __init__(self, left_paren, type_name, right_paren, expression):
+        Expr.__init__(self, [type_name, expression])
+        self.left_paren = left_paren
+        self.type_name = type_name
+        self.right_paren = right_paren
+        self.expression = expression
+
+    @property
+    def tokens(self):
+        tokens = [self.left_paren]
+        tokens += self.type_name.tokens
+        tokens += [self.rigth_paren]
+        tokens += self.expression.tokens
+        return tokens
+
+    def __str__(self):
+        s = '(' + str(self.type_name) + ') '
+        s += str(self.expression)
+        return s
+
+
 class DeclarationExpr(Expr):
     def __init__(self, specifiers_tokens, declarators, semicolon_token):
         Expr.__init__(self, declarators)
@@ -665,13 +707,17 @@ class BinaryOperationExpr(Expr):
         return self.left.tokens + [self.operator] + self.left.tokens
 
     def __str__(self):
-        return "({} {} {})".format(self.left,
-                                   self.operator.string,
-                                   self.right)
+        op = self.operator.string
+        s = "{} {} {}".format(self.left, op, self.right)
+        if op in '='.split():
+            return s
+        return '(' + s + ')'
 
 
 class CallExpr(Expr):
     def __init__(self, expression, left_paren, arguments, right_paren):
+        assert left_paren.string == '('
+        assert right_paren.string == ')'
         Expr.__init__(self, [expression] + arguments)
         self.expression = expression
         self.left_paren = left_paren
@@ -680,13 +726,37 @@ class CallExpr(Expr):
 
     @property
     def tokens(self):
+        args_tokens = []
+        for arg in self.arguments:
+            args_tokens += arg.tokens
         return (self.expression.tokens +
-                [self.left_paren] + self.arguments + [self.right_paren])
+                [self.left_paren] + args_tokens + [self.right_paren])
 
     def __str__(self):
         s = str(self.expression)
         s += '(' + ', '.join(str(a) for a in self.arguments) + ')'
         return s
+
+
+class SubscriptExpr(Expr):
+    def __init__(self, expression, left_bracket, index, right_bracket):
+        assert left_bracket.string == '['
+        assert right_bracket.string == ']'
+        Expr.__init__(self, [expression, index])
+        self.expression = expression
+        self.left_bracket = left_bracket
+        self.index = index
+        self.right_bracket = right_bracket
+
+    @property
+    def tokens(self):
+        return (self.expression.tokens +
+                [self.left_bracket] +
+                self.index.tokens +
+                [self.right_bracket])
+
+    def __str__(self):
+        return str(self.expression) + '[' + str(self.index) + ']'
 
 
 class PointerExpr(Expr):
@@ -845,7 +915,28 @@ class JumpStatementExpr(Expr):
         return self.keyword.string + ' ' + str(self.expression) + ';'
 
 
+class ParenExpr(Expr):
+    def __init__(self, left_paren, expression, right_paren):
+        Expr.__init__(self, [expression])
+        assert left_paren.string == '('
+        assert right_paren.string == ')'
+        self.left_paren = left_paren
+        self.expression = expression
+        self.right_paren = right_paren
+
+    @property
+    def tokens(self):
+        return [self.left_paren] + self.expression.tokens + [self.right_paren]
+
+    def __str__(self):
+        return '(' + str(self.expression) + ')'
+
+
 class TokenReader:
+    """
+    An utility to read a list of tokens.
+    """
+
     def __init__(self, tokens):
         self._tokens = tokens
         self._index = 0
@@ -876,12 +967,13 @@ class TokenReader:
         return self._tokens[self._index].end
 
 
-#
-# from http://www.lysator.liu.se/c/ANSI-C-grammar-y.html
-#
-
-
 class Parser(TokenReader):
+    """
+    A parser for the C language.
+
+    Grammar: http://www.lysator.liu.se/c/ANSI-C-grammar-y.html
+    """
+
     def __init__(self, tokens):
         TokenReader.__init__(self, tokens)
         self._types = []
@@ -897,7 +989,11 @@ class Parser(TokenReader):
             self.raise_syntax_error(msg)
         self._types.append(type_name)
 
-    def get_system_header_types(self):
+    def add_types(self, types):
+        for type_name in types:
+            self.add_type(type_name)
+
+    def get_system_headers_types(self):
         stdint = ('intmax_t int8_t int16_t int32_t int64_t '
                   'int_least8_t int_least16_t int_least32_t int_least64_t '
                   'int_fast8_t int_fast16_t int_fast32_t int_fast64_t '
@@ -905,23 +1001,24 @@ class Parser(TokenReader):
         stdint += ['u' + type for type in stdint]
         stdint = ' '.join(stdint)
 
-        strings = [
-            ('stddef.h',        'size_t ptrdiff_t'),
-            ('stdint.h',        stdint),
-            ('stdio.h',         'size_t'),
-            ('stdlib.h',        'size_t'),
-            ('strig.h',         'size_t'),
-            ('time.h',          'clock_t size_t time_t'),
-            ('unistd.h',        'ssize_t'),
-        ]
-        return [(h, types.split()) for h, types in strings]
+        strings = {
+            'stddef.h':         'size_t ptrdiff_t',
+            'stdint.h':         stdint,
+            'stdio.h':          'size_t',
+            'stdlib.h':         'size_t',
+            'strig.h':          'size_t',
+            'time.h':           'clock_t size_t time_t',
+            'unistd.h':         'ssize_t',
+        }
+        return {h: types.split() for h, types in strings.items()}
 
     def expand_header(self, header_name, system):
         if (header_name, system) in self._included_headers:
             return
         self._included_headers.append((header_name, system))
-        if header_name == 'unistd.h':
-            self.add_type('ssize_t')
+        headers_types = self.get_system_headers_types()
+        if header_name in headers_types:
+            self.add_types(headers_types[header_name])
 
     def process_include(self, directive_string):
         s = directive_string
@@ -996,12 +1093,18 @@ class Parser(TokenReader):
     def expect_sign(self, sign_list):
         id = self.parse_sign(sign_list)
         if id is None:
-            raise SyntaxError('Expected {!r}'.format(sign_list),
-                              self.position)
+            self.raise_syntax_error('Expected {!r}'.format(sign_list))
         return id
 
     def parse_identifier_token(self):
-        return self.parse_token('identifier')
+        begin = self.index
+        token = self.parse_token('identifier')
+        if token is None:
+            return token
+        if token.string in self.types:
+            self.index = begin
+            return None
+        return token
 
     def expect_identifier_token(self):
         id = self.parse_identifier_token()
@@ -1055,6 +1158,20 @@ class Parser(TokenReader):
             self.index = begin
         return None
 
+    def parse_declarator_brackets(self, left):
+        begin = self.index
+        left_bracket = self.parse_sign('[')
+        if left_bracket is not None:
+            if not self.has_more:
+                raise SyntaxError("Expected ']'", self.position)
+            constant = self.parse_constant_expression()
+            if constant is not None:
+                right_bracket = self.expect_sign(']')
+                return SubscriptExpr(left,
+                                     left_bracket, constant, right_bracket)
+            self.index = begin
+        return None
+
     def parse_direct_abstract_declarator(self):
         left = self.parse_declarator_parens(True)
         if left is None:
@@ -1083,10 +1200,14 @@ class Parser(TokenReader):
 
         while self.has_more:
             parameter_list = self.parse_parameter_type_list()
-            if parameter_list is None:
-                break
-            else:
+            if parameter_list is not None:
                 left = FunctionExpr(left, parameter_list)
+                continue
+            brackets = self.parse_declarator_brackets(left)
+            if brackets is not None:
+                left = brackets
+                continue
+            break
         return left
 
     def parse_declarator(self, abstract=False):
@@ -1109,17 +1230,21 @@ class Parser(TokenReader):
             return None
         begin = self.index
         token = self.next()
-        if token.kind in 'identifier integer float string character'.split():
+        if token.kind in 'integer float string character'.split():
             return token
         self.index = begin
-        return None
+        return self.parse_identifier_token()
 
     def parse_paren_expression(self):
+        begin = self.index
         left_paren = self.parse_sign('(')
         if left_paren is None:
             return None
         expr = self.parse_expression()
-        return ParenExpr(left_paren, expr, expect_sign(')'))
+        if expr is None:
+            self.index = begin
+            return None
+        return ParenExpr(left_paren, expr, self.expect_sign(')'))
 
     def parse_primary_expression(self):
         token = self.parse_primary_token()
@@ -1178,7 +1303,7 @@ class Parser(TokenReader):
         if kw is not None:
             return kw
         begin = self.index
-        token = self.parse_identifier_token()
+        token = self.parse_token('identifier')
         if token is not None and token.string in self.types:
             return token
         self.index = begin
@@ -1219,6 +1344,27 @@ class Parser(TokenReader):
         if len(tokens) == 0:
             return tokens
         return tokens + self.parse_declaration_specifiers()
+
+    def parse_specifier_qualifier_list(self):
+        """
+        Returns a list of tokens
+        """
+        tokens = []
+        token = self.parse_type_specifier()
+        if token is not None:
+            tokens.append(token)
+        token = self.parse_type_qualifier()
+        if token is not None:
+            tokens.append(token)
+        if len(tokens) == 0:
+            return tokens
+        return tokens + self.parse_specifier_qualifier_list()
+
+    def parse_type_name(self):
+        specifiers = self.parse_specifier_qualifier_list()
+        if len(specifiers) == 0:
+            return None
+        return TypeExpr(specifiers, self.parse_declarator(abstract=True))
 
     def filter_type_specifiers(self, tokens):
         return [t for t in tokens if
@@ -1262,14 +1408,20 @@ class Parser(TokenReader):
 
     def parse_postfix_expression(self):
         left = self.parse_primary_expression()
+        if left is None:
+            return None
         while True:
-            op = self.parse_sign('( ++ --'.split())
+            op = self.parse_sign('[ ( ++ --'.split())
             if op is None:
                 break
             if op.string == '(':
                 arguments = self.parse_argument_expression_list()
                 right_paren = self.expect_sign(')')
-                return CallExpr(left, op.string, arguments, right_paren)
+                return CallExpr(left, op, arguments, right_paren)
+            elif op.string == '[':
+                expr = self.parse_expression()
+                right_bracket = self.expect_sign(']')
+                return SubscriptExpr(left, op, expr, right_bracket)
             elif op.string in '++ --'.split():
                 return UnaryOperationExpr(op, left, postfix=True)
             else:
@@ -1310,7 +1462,20 @@ class Parser(TokenReader):
         return left
 
     def parse_cast_expression(self):
-        return self.parse_unary_expression()
+        expr = self.parse_unary_expression()
+        if expr is not None:
+            return expr
+        left_paren = self.parse_sign('(')
+        if left_paren is None:
+            return None
+        type_name = self.parse_type_name()
+        if type_name is None:
+            return self.raise_syntax_error('Expected type name')
+        right_paren = self.expect_sign(')')
+        expr = self.parse_cast_expression()
+        if expr is None:
+            return self.raise_syntax_error('Expected expression')
+        return CastExpr(left_paren, type_name, right_paren, expr)
 
     def parse_multiplicative_expression(self):
         return self.parse_binary_operation('* / %',
@@ -1337,6 +1502,9 @@ class Parser(TokenReader):
 
     def parse_conditional_expression(self):
         return self.parse_logical_or_expression()
+
+    def parse_constant_expression(self):
+        return self.parse_conditional_expression()
 
     def parse_assignment_operator(self):
         """
@@ -1437,7 +1605,7 @@ class Parser(TokenReader):
         if semicolon is None:
             expr = self.parse_expression()
             if expr is None:
-                raise SyntaxError('Expected expression')
+                raise SyntaxError('Expected expression', self.position)
             self.expect_sign(';')
         return JumpStatementExpr(return_token, expr, semicolon)
 
@@ -1510,7 +1678,6 @@ class Parser(TokenReader):
         return self.parse_translation_unit()
 
 
-
 def parse(v):
     if isinstance(v, str):
         return parse(lex(v))
@@ -1535,7 +1702,7 @@ def test():
 
     # TODO: Write real tests
     sources = [
-        'int b;',
+        'int b[4];',
         'void f(long a) {}',
         'void f(short b) {char *a, c; int c; 7 += a;}',
         'int main() {if (a < b) a;}',
@@ -1544,7 +1711,6 @@ def test():
 
         'int a(int (*)());',
         'int a(int *);',
-
 
         'long unsigned register int b, c;',
         'const volatile int b, c = 1;',
