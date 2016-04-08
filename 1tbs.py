@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import unittest
-import collections
 import re
 import sys
 import argparse
@@ -738,6 +737,38 @@ class CallExpr(Expr):
         return s
 
 
+class SizeofExpr(Expr):
+    def __init__(self, sizeof, left_paren, expression, right_paren):
+        assert sizeof.string == 'sizeof'
+        if left_paren is not None:
+            assert left_paren.string == '('
+            assert right_paren.string == ')'
+        Expr.__init__(self, [expression])
+        self.sizeof = sizeof
+        self.left_paren = left_paren
+        self.expression = expression
+        self.right_paren = right_paren
+
+    @property
+    def tokens(self):
+        tokens = [self.sizeof]
+        if self.left_paren is not None:
+            tokens.append(self.left_paren)
+        tokens += self.expression.tokens
+        if self.right_paren is not None:
+            tokens.append(self.right_paren)
+        return tokens
+
+    def __str__(self):
+        s = 'sizeof'
+        if self.left_paren is not None:
+            s += '('
+        s += str(self.expression)
+        if self.right_paren is not None:
+            s += ')'
+        return s
+
+
 class SubscriptExpr(Expr):
     def __init__(self, expression, left_bracket, index, right_bracket):
         assert left_bracket.string == '['
@@ -1252,11 +1283,14 @@ class Parser(TokenReader):
             return LiteralExpr(token)
         return self.parse_paren_expression()
 
-    def parse_initializer_list(self):
-        pass
-
     def parse_initializer(self):
-        return self.parse_assignment_expression()
+        expr = self.parse_assignment_expression()
+        if expr is not None:
+            return expr
+        left_brace = self.parse_sign('{')
+        if left_brace is not None:
+            self.raise_syntax_error('Initializer lists are not supported')
+        return None
 
     def parse_init_declarator(self):
         """
@@ -1434,7 +1468,25 @@ class Parser(TokenReader):
         """
         return self.parse_sign('& * + - ~ !'.split())
 
+    def parse_sizeof(self):
+        sizeof = self.parse_keyword(['sizeof'])
+        if sizeof is None:
+            return None
+        expr = self.parse_unary_expression()
+        if expr is not None:
+            return SizeofExpr(sizeof, None, expr, None)
+        left_paren = self.parse_sign('(')
+        if left_paren is not None:
+            type_name = self.parse_type_name()
+            if type_name is None:
+                self.raise_syntax_error('Expected type name')
+            right_paren = self.parse_expect(')')
+            return SizeofExpr(sizeof, left_paren, right_paren)
+
     def parse_unary_expression(self):
+        sizeof = self.parse_sizeof()
+        if sizeof is not None:
+            return sizeof
         op = self.parse_unary_operator()
         if op is None:
             op = self.parse_sign('-- ++'.split())
