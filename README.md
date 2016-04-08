@@ -3,7 +3,7 @@
 **Work in progress**
 
 **1TBS** stands for "the one true Bocal style". This is a "norminette",
-a C brace style checker written in Python.
+a C brace style checker written in Python designed for the EPITECH style.
 
 But unlike the "official" one, this style checker is not a buch of crappy
 regex getting so easily confused.
@@ -19,11 +19,4 @@ The parser can already process complex declarations like these ones:
 ```
 int *const *b;
 int (*getFunc())(int, int (*)(long));
-```
-
-Functions declarations defined without return type are not supported.
-This function gives a syntax error:
-
-```
-main();
 ```
