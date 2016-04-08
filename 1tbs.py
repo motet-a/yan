@@ -138,7 +138,7 @@ def raise_expected_string(expected_string, position):
     raise SyntaxError("Expected '{}'".format(expected_string), position)
 
 
-KEYWORDS = """
+KEYWORDS = '''
 auto
 break
 case
@@ -173,10 +173,10 @@ unsigned
 void
 volatile
 while
-""".split()
+'''.split()
 
 
-SIGNS = """
+SIGNS = '''
 ...
 >>= <<=
 += -= *= /= %=
@@ -201,7 +201,7 @@ SIGNS = """
 !
 ~
 ?
-""".split()
+'''.split()
 
 
 def get_lexer_spec():
@@ -864,7 +864,7 @@ class TokenReader:
         return self.index < len(self._tokens)
 
     def next(self):
-        assert self.has_more
+        assert self._index < len(self._tokens)
         token = self._tokens[self._index]
         self._index += 1
         return token
@@ -885,13 +885,84 @@ class Parser(TokenReader):
     def __init__(self, tokens):
         TokenReader.__init__(self, tokens)
         self._types = []
+        self._included_headers = []
 
     @property
     def types(self):
         return self._types[:]
 
     def add_type(self, type_name):
+        if type_name in self.types:
+            msg = 'Redefinition of type {!r}'.format(type_name)
+            self.raise_syntax_error(msg)
         self._types.append(type_name)
+
+    def get_system_header_types(self):
+        stdint = ('intmax_t int8_t int16_t int32_t int64_t '
+                  'int_least8_t int_least16_t int_least32_t int_least64_t '
+                  'int_fast8_t int_fast16_t int_fast32_t int_fast64_t '
+                  'intptr_t ').split()
+        stdint += ['u' + type for type in stdint]
+        stdint = ' '.join(stdint)
+
+        strings = [
+            ('stddef.h',        'size_t ptrdiff_t'),
+            ('stdint.h',        stdint),
+            ('stdio.h',         'size_t'),
+            ('stdlib.h',        'size_t'),
+            ('strig.h',         'size_t'),
+            ('time.h',          'clock_t size_t time_t'),
+            ('unistd.h',        'ssize_t'),
+        ]
+        return [(h, types.split()) for h, types in strings]
+
+    def expand_header(self, header_name, system):
+        if (header_name, system) in self._included_headers:
+            return
+        self._included_headers.append((header_name, system))
+        if header_name == 'unistd.h':
+            self.add_type('ssize_t')
+
+    def process_include(self, directive_string):
+        s = directive_string
+        assert s.startswith('include')
+        s = s[len('include'):].strip()
+        if s.startswith('<') and s.endswith('>'):
+            system = True
+            name = s[1:-1]
+        elif s.startswith('"') and s.endswith('"'):
+            system = False
+            name = s[1:-1]
+        else:
+            self.raise_syntax_error('Invalid #include directive')
+        self.expand_header(name, system)
+
+    def has_more_impl(self, index=-1):
+        if index == -1:
+            index = self.index
+        if index >= len(self._tokens):
+            return False
+        next_token = self._tokens[index]
+        if next_token.kind == 'comment' or next_token.kind == 'directive':
+            return self.has_more_impl(index + 1)
+        return True
+
+    @property
+    def has_more(self):
+        return self.has_more_impl()
+
+    def next(self):
+        token = TokenReader.next(self)
+        if token.kind == 'comment':
+            return self.next()
+        elif token.kind == 'directive':
+            s = token.string.strip()
+            assert s[0] == '#'
+            s = s[1:].strip()
+            if s.startswith('include'):
+                self.process_include(s)
+            return self.next()
+        return token
 
     def raise_syntax_error(self, message):
         raise SyntaxError(message, self.position)
@@ -1439,17 +1510,10 @@ class Parser(TokenReader):
         return self.parse_translation_unit()
 
 
-def remove_comments_and_directives(tokens):
-    new_tokens = []
-    for token in tokens:
-        if token.kind not in 'comment directive'.split():
-            new_tokens.append(token)
-    return new_tokens
-
 
 def parse(v):
     if isinstance(v, str):
-        return parse(remove_comments_and_directives(lex(v)))
+        return parse(lex(v))
     assert isinstance(v, list)
     parser = Parser(v)
     return parser.parse()
