@@ -20,3 +20,10 @@ The parser can already process complex declarations like these ones:
 int *const *b;
 int (*getFunc())(int, int (*)(long));
 ```
+
+Functions declarations defined without return type are not supported.
+This function gives a syntax error:
+
+```
+main();
+```
