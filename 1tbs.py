@@ -479,15 +479,47 @@ class Expr:
         return s
 
 
-class ParameterListExpr(Expr):
+def makeAbstractBracketExpr(class_name, signs, name):
+    """
+    Returns a new class
+    """
+    def __init__(self, left_bracket, right_bracket):
+        assert left_bracket.kind == 'sign'
+        assert left_bracket.string == signs[0]
+        assert right_bracket.kind == 'sign'
+        assert right_bracket.string == signs[1]
+        self._left_bracket = left_bracket
+        self._right_bracket = right_bracket
+
+    def right_bracket(self):
+        return self._right_bracket
+
+    def left_bracket(self):
+        return self._left_bracket
+
+    return type(class_name, (object,), {
+        '__init__': __init__,
+        'left_' + name: property(left_bracket),
+        'right_' + name: property(right_bracket),
+    })
+
+
+AbstractParenExpr = makeAbstractBracketExpr('AbstractParenExpr',
+                                            '()', 'paren')
+
+AbstractBracketExpr = makeAbstractBracketExpr('AbstractBracketExpr',
+                                              '[]', 'bracket')
+
+AbstractBraceExpr = makeAbstractBracketExpr('AbstractBraceExpr',
+                                            '{}', 'brace')
+
+
+class ParameterListExpr(Expr, AbstractParenExpr):
     def __init__(self, left_paren, parameters, right_paren):
+        AbstractParenExpr.__init__(self, left_paren, right_paren)
         Expr.__init__(self, parameters)
-        assert left_paren.string == '('
         assert isinstance(parameters, list)
-        assert right_paren.string == ')'
-        self.left_paren = left_paren
         self.parameters = parameters
-        self.right_paren = right_paren
 
     @property
     def tokens(self):
@@ -515,7 +547,7 @@ class ParameterExpr(Expr):
         specifiers = ' '.join(t.string for t in self.specifiers_tokens)
         if self.declarator is None:
             return specifiers
-        return "{} {}".format(specifiers, self.declarator)
+        return '{} {}'.format(specifiers, self.declarator)
 
 
 class StatementExpr(Expr):
@@ -561,22 +593,19 @@ class FunctionExpr(Expr):
         return '{}{}'.format(self.declarator, self.parameters)
 
 
-class CompoundExpr(Expr):
+class CompoundExpr(Expr, AbstractBraceExpr):
     """
     A compound expression.
     Starts with a '{' and ends with a '}'
     """
 
     def __init__(self, left_brace, declarations, statements, right_brace):
-        assert isinstance(left_brace, Token)
+        AbstractBraceExpr.__init__(self, left_brace, right_brace)
         assert isinstance(declarations, list)
         assert isinstance(statements, list)
-        assert isinstance(right_brace, Token)
         Expr.__init__(self, declarations + statements)
-        self.left_brace = left_brace
         self.declarations = declarations
         self.statements = statements
-        self.right_brace = right_brace
 
     @property
     def tokens(self):
@@ -667,12 +696,11 @@ class TypeExpr(Expr):
         return s
 
 
-class CastExpr(Expr):
+class CastExpr(Expr, AbstractParenExpr):
     def __init__(self, left_paren, type_name, right_paren, expression):
+        AbstractParenExpr.__init__(self, left_paren, right_paren)
         Expr.__init__(self, [type_name, expression])
-        self.left_paren = left_paren
         self.type_name = type_name
-        self.right_paren = right_paren
         self.expression = expression
 
     @property
@@ -709,7 +737,7 @@ class DeclarationExpr(Expr):
     def __str__(self):
         specifiers = ' '.join(t.string for t in self.specifiers_tokens)
         declarators = ', '.join(str(d) for d in self.declarators)
-        return "{} {};\n".format(specifiers, declarators)
+        return '{} {};\n'.format(specifiers, declarators)
 
 
 class BinaryOperationExpr(Expr):
@@ -725,21 +753,18 @@ class BinaryOperationExpr(Expr):
 
     def __str__(self):
         op = self.operator.string
-        s = "{} {} {}".format(self.left, op, self.right)
+        s = '{} {} {}'.format(self.left, op, self.right)
         if op in '='.split():
             return s
         return '(' + s + ')'
 
 
-class CallExpr(Expr):
+class CallExpr(Expr, AbstractParenExpr):
     def __init__(self, expression, left_paren, arguments, right_paren):
-        assert left_paren.string == '('
-        assert right_paren.string == ')'
+        AbstractParenExpr.__init__(self, left_paren, right_paren)
         Expr.__init__(self, [expression] + arguments)
         self.expression = expression
-        self.left_paren = left_paren
         self.arguments = arguments
-        self.right_paren = right_paren
 
     @property
     def tokens(self):
@@ -787,15 +812,12 @@ class SizeofExpr(Expr):
         return s
 
 
-class SubscriptExpr(Expr):
+class SubscriptExpr(Expr, AbstractBracketExpr):
     def __init__(self, expression, left_bracket, index, right_bracket):
-        assert left_bracket.string == '['
-        assert right_bracket.string == ']'
+        AbstractBracketExpr.__init__(self, left_bracket, right_bracket)
         Expr.__init__(self, [expression, index])
         self.expression = expression
-        self.left_bracket = left_bracket
         self.index = index
-        self.right_bracket = right_bracket
 
     @property
     def tokens(self):
@@ -851,8 +873,8 @@ class UnaryOperationExpr(Expr):
 
     def __str__(self):
         if self.postfix:
-            return "({}{})".format(self.right, self.operator.string)
-        return "({}{})".format(self.operator.string, self.right)
+            return '({}{})'.format(self.right, self.operator.string)
+        return '({}{})'.format(self.operator.string, self.right)
 
 
 class LiteralExpr(Expr):
@@ -882,14 +904,13 @@ class LiteralExpr(Expr):
             self.kind, self.string)
 
 
-class WhileExpr(Expr):
+class WhileExpr(Expr, AbstractParenExpr):
     def __init__(self, while_token, left_paren, expression, right_paren,
                  statement):
+        AbstractParenExpr.__init__(self, left_paren, right_paren)
         Expr.__init__(self, [expression, statement])
         self.while_token = while_token
-        self.left_paren = left_paren
         self.expression = expression
-        self.right_paren = right_paren
         self.statement = statement
 
     @property
@@ -906,17 +927,17 @@ class WhileExpr(Expr):
         return s
 
 
-class IfExpr(Expr):
+class IfExpr(Expr, AbstractParenExpr):
     def __init__(self, if_token, left_paren, expression, right_paren,
                  statement, else_token, else_statement):
+        AbstractParenExpr.__init__(self, left_paren, right_paren)
+        assert if_token.string == 'if'
         children = [expression, statement]
         if else_statement is not None:
             children.append(else_statement)
         Expr.__init__(self, children)
         self.if_token = if_token
-        self.left_paren = left_paren
         self.expression = expression
-        self.right_paren = right_paren
         self.statement = statement
         self.else_token = else_token
         self.else_statement = else_statement
@@ -951,6 +972,7 @@ class TranslationUnitExpr(Expr):
 
 class JumpStatementExpr(Expr):
     def __init__(self, keyword, expression, semicolon):
+        assert keyword in 'if while do'.split();
         Expr.__init__(self, [expression])
         self.keyword = keyword
         self.expression = expression
@@ -964,14 +986,11 @@ class JumpStatementExpr(Expr):
         return self.keyword.string + ' ' + str(self.expression) + ';'
 
 
-class ParenExpr(Expr):
+class ParenExpr(Expr, AbstractParenExpr):
     def __init__(self, left_paren, expression, right_paren):
+        AbstractParenExpr.__init__(left_paren, expression, right_paren)
         Expr.__init__(self, [expression])
-        assert left_paren.string == '('
-        assert right_paren.string == ')'
-        self.left_paren = left_paren
         self.expression = expression
-        self.right_paren = right_paren
 
     @property
     def tokens(self):
@@ -1360,6 +1379,11 @@ class Parser(TokenReader):
     def get_type_specifiers_strings(self):
         return 'void char short int long float double signed unsigned'.split()
 
+    def parse_struct_or_union_specifier(self):
+        kw = self.parse_keyword('struct union'.split())
+        if kw is None:
+            return None
+
     def parse_type_specifier(self):
         """
         Returns a token or None
@@ -1367,6 +1391,7 @@ class Parser(TokenReader):
         kw = self.parse_keyword(self.get_type_specifiers_strings())
         if kw is not None:
             return kw
+
         begin = self.index
         token = self.parse_token('identifier')
         if token is not None and token.string in self.types:
@@ -1899,6 +1924,15 @@ class TestParser(unittest.TestCase):
                        '{\n'
                        'write(STDOUT_FILENO, (&c), 1);\n'
                        '}')
+
+    def test_struct(self):
+        self.checkDecl('struct s;')
+        self.checkDecl('enum s;')
+        self.checkDecl('union s;')
+
+    def test_typedef(self):
+        # TODO:
+        pass
 
 
 def get_argument_parser():
