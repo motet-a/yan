@@ -259,6 +259,16 @@ def get_lexer_regexp():
     return '|'.join(get_token_regex(pair) for pair in lexer_spec)
 
 
+def check_directive(string, begin):
+    string = string.strip()[1:].strip()
+    if string.startswith('include'):
+        system_include_pattern = r'^include\s+<[\w\.]+>$'
+        local_include_pattern = r'^include\s+"[\w\.]+"$'
+        if (re.match(system_include_pattern, string) is None and
+                re.match(local_include_pattern, string) is None):
+            msg = "Invalid #include directive (was {!r})".format('#' + string)
+            raise SyntaxError(msg, begin)
+
 def lex_token(source_string, file_name):
     position = Position(file_name)
     for mo in re.finditer(get_lexer_regexp(), source_string):
@@ -285,9 +295,11 @@ def lex_token(source_string, file_name):
         elif kind == '__mismatch__':
             raise SyntaxError("{!r} unexpected".format(string), begin)
         else:
+            if kind == 'directive':
+                check_directive(string, begin)
             if kind == 'integer_hex':
                 kind = 'integer'
-            if kind == 'float_a' or kind == 'float_b':
+            elif kind == 'float_a' or kind == 'float_b':
                 kind = 'float'
             elif kind == 'identifier' and string in KEYWORDS:
                 kind = 'keyword'
@@ -299,8 +311,6 @@ def lex(string, file_name='<unknown file>'):
     for token in lex_token(string, file_name):
         l.append(token)
     return l
-    g = lex_token(string, file_name)
-    return list(g)
 
 
 class TestLexer(unittest.TestCase):
@@ -420,6 +430,12 @@ class TestLexer(unittest.TestCase):
         self.assertTokenEqual('\n#ifdef a', 'directive', '#ifdef a')
         self.assertTokenEqual('\n  #  include <a> \n ',
                               'directive', '  #  include <a> ')
+        self.assertTokenEqual('\n  #  include "a" \n ',
+                              'directive', '  #  include "a" ')
+        with self.assertRaises(SyntaxError):
+            lex('#include "a>')
+        with self.assertRaises(SyntaxError):
+            lex('#include <a"')
 
 
 class Expr:
@@ -574,8 +590,10 @@ class CompoundExpr(Expr):
         if len(self.declarations) > 0:
             s += ''.join(str(d) for d in self.declarations)
             s += '\n'
-        s += '\n'.join(str(s) for s in self.statements)
-        s += '\n}\n'
+        if len(self.statements) > 0:
+            s += ''.join(str(s) for s in self.statements)
+            s += '\n'
+        s += '}\n'
         return s
 
 
@@ -978,7 +996,7 @@ class TokenReader:
 
     @index.setter
     def index(self, index):
-        assert index < len(self._tokens)
+        assert index <= len(self._tokens)
         self._index = index
 
     @property
@@ -1025,6 +1043,15 @@ class Parser(TokenReader):
             self.add_type(type_name)
 
     def get_system_headers_types(self):
+        """
+        Types are part of the syntax. We must know the defined types
+        to be able to parse correctly a file. But parsing a header
+        of the libc full of macros is fairly complicated: since this
+        program has no real preprocessor, it doesn't handle the macros.
+
+        So here is a list of the standard types defined in the standard
+        headers.
+        """
         stdint = ('intmax_t int8_t int16_t int32_t int64_t '
                   'int_least8_t int_least16_t int_least32_t int_least64_t '
                   'int_fast8_t int_fast16_t int_fast32_t int_fast64_t '
@@ -1032,14 +1059,16 @@ class Parser(TokenReader):
         stdint += ['u' + type for type in stdint]
         stdint = ' '.join(stdint)
 
+        stddef = 'size_t ptrdiff_t'
         strings = {
-            'stddef.h':         'size_t ptrdiff_t',
+            'setjmp.h':         'jmp_buf',
+            'stddef.h':         stddef,
             'stdint.h':         stdint,
-            'stdio.h':          'size_t',
-            'stdlib.h':         'size_t',
-            'strig.h':          'size_t',
-            'time.h':           'clock_t size_t time_t',
-            'unistd.h':         'ssize_t',
+            'stdio.h':          stddef + ' FILE',
+            'stdlib.h':         stddef + ' div_t ldiv_t',
+            'string.h':         stddef,
+            'time.h':           stddef + ' clock_t time_t',
+            'unistd.h':         stddef + ' ssize_t',
         }
         return {h: types.split() for h, types in strings.items()}
 
@@ -1086,6 +1115,8 @@ class Parser(TokenReader):
         elif token.kind == 'directive':
             s = token.string.strip()
             assert s[0] == '#'
+            # There may be several spaces between the '#' and the
+            # next word, we need to strip these
             s = s[1:].strip()
             if s.startswith('include'):
                 self.process_include(s)
@@ -1706,7 +1737,7 @@ class Parser(TokenReader):
             raise SyntaxError('Expected declarator', self.position)
         compound = self.parse_compound_statement()
         if compound is None:
-            raise SyntaxError('Expected coumpound statement', self.position)
+            raise SyntaxError('Expected compound statement', self.position)
         return FunctionDefinitionExpr(specifiers, declarator, compound)
 
     def parse_external_declaration(self):
@@ -1730,12 +1761,144 @@ class Parser(TokenReader):
         return self.parse_translation_unit()
 
 
-def parse(v):
+def argument_to_tokens(v):
     if isinstance(v, str):
-        return parse(lex(v))
-    assert isinstance(v, list)
-    parser = Parser(v)
+        v = lex(v)
+    if not isinstance(v, list):
+        raise ArgumentError('Expected a list of tokens')
+    return v
+
+
+def parse(v):
+    """
+    v: a string or a list of tokens
+    """
+    parser = Parser(argument_to_tokens(v))
     return parser.parse()
+
+
+def parse_statement(v):
+    """
+    v: a string or a list of tokens
+    """
+    parser = Parser(argument_to_tokens(v))
+    return parser.parse_statement()
+
+
+def parse_expr(v):
+    """
+    v: a string or a list of tokens
+    """
+    parser = Parser(argument_to_tokens(v))
+    return parser.parse_expression()
+
+
+class TestParser(unittest.TestCase):
+    def checkDecl(self, source, expected_result=None, parse_func=parse):
+        if expected_result is None:
+            expected_result = source
+        tree = parse_func(source)
+        result = str(tree).rstrip('\n')
+        self.assertEqual(result, expected_result)
+
+    def checkExpr(self, source, expected_result=None):
+        self.checkDecl(source, expected_result, parse_expr)
+
+    def checkStatement(self, source, expected_result=None):
+        self.checkDecl(source, expected_result, parse_statement)
+
+    def test_binary_operation(self):
+        self.checkExpr('1 + 2', '(1 + 2)')
+        self.checkExpr('1 + 2 * 3', '(1 + (2 * 3))')
+        self.checkExpr('1 * 2 + 3', '((1 * 2) + 3)')
+
+    def test_statement(self):
+        self.checkStatement('0;')
+        self.checkStatement('1 + 2;', '(1 + 2);')
+
+    def test_array(self):
+        self.checkDecl('int b[4];')
+        self.checkDecl('int b[1][2];', 'int b[1][2];')
+
+    def test_decl(self):
+        self.checkDecl('long unsigned register int b, c;')
+        self.checkDecl('const volatile int b, c = 1;')
+        self.checkDecl('int **b, *c = 1;',
+                       'int (*(*b)), (*c) = 1;')
+
+    def test_function_decl(self):
+        self.checkDecl('void f(long a);')
+        self.checkDecl('void f(long);')
+
+    def test_function_def(self):
+        self.checkDecl('void f(long a) {}',
+                       'void f(long a)\n{\n}')
+        self.checkDecl('void f(long) {}', 'void f(long)\n{\n}')
+
+        self.checkDecl('int main()'
+                       '{'
+                       'if (a < b) a;'
+                       '}',
+                       'int main()\n'
+                       '{\n'
+                       'if ((a < b))\n'
+                       'a;\n'
+                       '}')
+
+        self.checkDecl('void f(short b)'
+                       '{'
+                       '  char *a, c; int c; 7 += a;'
+                       '}',
+                       'void f(short b)\n'
+                       '{\n'
+                       'char (*a), c;\n'
+                       'int c;\n'
+                       '\n'
+                       '(7 += a);\n'
+                       '}')
+
+        self.checkDecl('char *strdup(const char *);',
+                       'char (*strdup(const char (*)));')
+        self.checkDecl('char *strdup(const char *s);',
+                       'char (*strdup(const char (*s)));')
+
+    def test_function_pointer(self):
+        self.checkDecl('int (*getFunc())(int, int (*)(long));')
+        self.checkDecl('int (*getFunc())(int, int (*)(long)) {}',
+                       'int (*getFunc())(int, int (*)(long))\n'
+                       '{\n'
+                       '}')
+
+    def test_size_t(self):
+        with self.assertRaises(SyntaxError):
+            parse('size_t n;')
+        self.checkDecl('#include <stdlib.h>\n'
+                       'size_t n;',
+                       'size_t n;')
+        self.checkDecl('#include <stddef.h>\n'
+                       'size_t n;',
+                       'size_t n;')
+        self.checkDecl('#include <unistd.h>\n'
+                       'size_t n;',
+                       'size_t n;')
+
+    def test_comment(self):
+        with self.assertRaises(SyntaxError):
+            parse('// no C++ comment')
+        self.checkDecl('/* This is a coment */', '')
+        self.checkDecl('int /* hello */ n;', 'int n;')
+
+    def test_print_char(self):
+        self.checkDecl('#include <unistd.h>\n'
+                       ''
+                       'void print_char(char c)'
+                       '{'
+                       '  write(STDOUT_FILENO, &c, 1);'
+                       '}',
+                       'void print_char(char c)\n'
+                       '{\n'
+                       'write(STDOUT_FILENO, (&c), 1);\n'
+                       '}')
 
 
 def get_argument_parser():
@@ -1751,42 +1914,29 @@ def get_argument_parser():
 
 def test():
     unittest.main(exit=False, argv=sys.argv[:1])
+    return
 
     # TODO: Write real tests
     sources = [
-        'int b[4];',
-        'void f(long a) {}',
-        'void f(short b) {char *a, c; int c; 7 += a;}',
-        'int main() {if (a < b) a;}',
-        'char *strdup(const char *);',
-        'char (*strdup)(const char *);',
-
         'int a(int (*)());',
-        'int a(int *);',
 
-        'long unsigned register int b, c;',
-        'const volatile int b, c = 1;',
-        'int **b, *c = 1;',
         'int main(int argc, char **argv);',
         'void f(void);',
         'int (*f)(void);',
         'int (*getFunc())(int, int (*b)(long));',
         'int (*a)();',
 
-        'int (*getFunc())(int, int (*)(long));',
-        'int (*getFunc())(int, int (*)(long)) {}',
-
         'main() {lol();}',
 
         '''
         #include <unistd.h>
 
-        void my_putchar(char c)
+        void print_char(char c)
         {
           write(STDOUT_FILENO, &c, 1);
         }
 
-        void my_putstr(const char *string)
+        void print_string(const char *string)
         {
           while (*string)
             {
@@ -1795,8 +1945,6 @@ def test():
             }
         }
         ''',
-
-        '/**/',
     ]
     for source in sources:
         print(source)
@@ -1805,9 +1953,13 @@ def test():
 
 def check_file(source_file):
     source = source_file.read()
+    print('tokenizing...')
     tokens = lex(source)
     print('\n'.join(repr(t) for t in tokens))
-    print(parse(source))
+    print('parsing...')
+    # print('\n'.join(repr(t) for t in tokens))
+    ast = parse(tokens)
+    print(str(ast))
 
 
 def main():
