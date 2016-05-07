@@ -10,6 +10,13 @@ regex getting so easily confused.
 The 1TBS checker is based on a carefully designed tokenizer and an
 authentic hand-written recursive descent parser.
 
+However, the 1TBS checker does not handle macros and preprocessor
+directives (except `#include`).
+
+## Run the tests
+
+Use `python3 -m unittest 1tbs`.
+
 ## TODO
 
 A lot of work.

@@ -1908,14 +1908,11 @@ def get_argument_parser():
                         nargs='*', type=argparse.FileType('r'),
                         help='source files to check')
     parser.add_argument('--test', action='store_true',
-                        help='run the tests')
+                        help='run the old tests')
     return parser
 
 
 def test():
-    unittest.main(exit=False, argv=sys.argv[:1])
-    return
-
     # TODO: Write real tests
     sources = [
         'int a(int (*)());',
