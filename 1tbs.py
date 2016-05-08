@@ -321,8 +321,6 @@ class TestLexer(unittest.TestCase):
     def assertTokenEqual(self, source, kind, string):
         assert kind in TOKEN_KINDS
         tokens = lex(source)
-        if len(tokens) != 1:
-            print(tokens)
         self.assertEqual(len(tokens), 1)
         self.assertEqual(tokens[0].kind, kind)
         self.assertEqual(tokens[0].string, string)
@@ -1420,7 +1418,6 @@ class Parser(TokenReader):
         token = self.parse_keyword(kw_strings)
         if token is None:
             return None
-        print(token)
         return TypeSpecifierExpr(token)
 
     def get_type_specifiers_strings(self):
