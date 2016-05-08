@@ -27,3 +27,8 @@ The parser can already process complex declarations like these ones:
 int *const *b;
 int (*getFunc())(int, int (*)(long));
 ```
+
+Macros are not implemented, `#define`s are ignored.
+
+Structure and unions are not entirely implemeneted. Bit fields are
+not implemented.
