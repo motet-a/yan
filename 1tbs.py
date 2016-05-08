@@ -788,20 +788,17 @@ class TypeNameExpr(Expr):
     Used in casts and in sizeofs
     """
 
-    def __init__(self, specifiers_tokens, declarator):
-        Expr.__init__(self, [] if declarator is None else [declarator])
-        self.specifiers_tokens = specifiers_tokens
+    def __init__(self, type_expr, declarator):
+        children = [type_expr]
+        if declarator is not None:
+            children.append(declarator)
+        Expr.__init__(self, children)
+        assert isinstance(type_expr, TypeExpr)
+        self.type_expr = type_expr
         self.declarator = declarator
 
-    @property
-    def tokens(self):
-        tokens = self.specifiers_tokens[:]
-        if self.declarator is not None:
-            tokens += self.declarator.tokens
-        return tokens
-
     def __str__(self):
-        s = ' '.join(t.string for t in self.specifiers_tokens)
+        s = str(self.type_expr)
         if self.declarator is not None:
             s += ' ' + str(self.declarator)
         return s
@@ -925,6 +922,9 @@ class SizeofExpr(Expr):
         s = 'sizeof'
         if self.left_paren is not None:
             s += '('
+        else:
+            if not isinstance(self.expression, ParenExpr):
+                s += ' '
         s += str(self.expression)
         if self.right_paren is not None:
             s += ')'
@@ -1091,8 +1091,16 @@ class TranslationUnitExpr(Expr):
 
 class JumpStatementExpr(Expr):
     def __init__(self, keyword, expression, semicolon):
+        """
+        expression: The expression after a `return` or a `goto`,
+        None otherwise.
+        """
+
         assert isinstance(keyword, Token)
-        assert keyword in 'if while do'.split()
+        assert keyword.string in 'goto continue break return'.split()
+        if keyword.string not in 'goto return':
+            assert expression is None
+
         Expr.__init__(self, [expression])
         self.keyword = keyword
         self.expression = expression
@@ -1100,15 +1108,22 @@ class JumpStatementExpr(Expr):
 
     @property
     def tokens(self):
-        return [self.keyword] + self.expression.tokens + [self.semicolon]
+        t = [self.keyword]
+        if self.expression is not None:
+            t += self.expression.tokens
+        t.append(self.semicolon)
+        return t
 
     def __str__(self):
-        return self.keyword.string + ' ' + str(self.expression) + ';'
+        s = self.keyword.string
+        if self.expression is not None:
+            s += ' ' + str(self.expression)
+        return s + ';'
 
 
 class ParenExpr(Expr, AbstractParenExpr):
     def __init__(self, left_paren, expression, right_paren):
-        AbstractParenExpr.__init__(left_paren, expression, right_paren)
+        AbstractParenExpr.__init__(self, left_paren, right_paren)
         Expr.__init__(self, [expression])
         self.expression = expression
 
@@ -1190,10 +1205,14 @@ class Parser(TokenReader):
         return self._types[:]
 
     def add_type(self, type_name):
-        if type_name in self.types:
-            msg = 'Redefinition of type {!r}'.format(type_name)
-            self.raise_syntax_error(msg)
-        self._types.append(type_name)
+        """
+        If the type is already defined, it is not added to the list.
+        We can't warn or raise an error when type redefinition
+        occurs since we have a no preprocessor to handle `#pragma once`
+        and other directives.
+        """
+        if type_name not in self.types:
+            self._types.append(type_name)
 
     def add_types(self, types):
         for type_name in types:
@@ -1708,8 +1727,8 @@ class Parser(TokenReader):
             type_name = self.parse_type_name()
             if type_name is None:
                 self.raise_syntax_error('Expected type name')
-            right_paren = self.parse_expect(')')
-            return SizeofExpr(sizeof, left_paren, right_paren)
+            right_paren = self.expect_sign(')')
+            return SizeofExpr(sizeof, left_paren, type_name, right_paren)
 
     def parse_unary_expression(self):
         sizeof = self.parse_sizeof()
@@ -2002,6 +2021,11 @@ class TestParser(unittest.TestCase):
 
     def checkStatement(self, source, expected_result=None):
         self.checkDecl(source, expected_result, parse_statement)
+
+    def test_sizeof(self):
+        self.checkExpr('sizeof(int)')
+        self.checkExpr('sizeof(123)')
+        self.checkExpr('sizeof 123')
 
     def test_binary_operation(self):
         self.checkExpr('1 + 2', '(1 + 2)')
