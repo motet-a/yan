@@ -269,6 +269,7 @@ def check_directive(string, begin):
             msg = "Invalid #include directive (was {!r})".format('#' + string)
             raise SyntaxError(msg, begin)
 
+
 def lex_token(source_string, file_name):
     position = Position(file_name)
     for mo in re.finditer(get_lexer_regexp(), source_string):
@@ -1013,7 +1014,7 @@ class TranslationUnitExpr(Expr):
 class JumpStatementExpr(Expr):
     def __init__(self, keyword, expression, semicolon):
         assert isinstance(keyword, Token)
-        assert keyword in 'if while do'.split();
+        assert keyword in 'if while do'.split()
         Expr.__init__(self, [expression])
         self.keyword = keyword
         self.expression = expression
