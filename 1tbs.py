@@ -604,9 +604,18 @@ class StructExpr(AbstractTypeSpecifierExpr):
 
 class TypeExpr(Expr):
     def __init__(self, children):
+        assert len(children) > 0
         for child in children:
             assert isinstance(child, AbstractTypeSpecifierExpr)
         Expr.__init__(self, children)
+
+    @property
+    def is_typedef(self):
+        for child in self.children:
+            if isinstance(child, TypeSpecifierExpr):
+                if child.token.string == 'typedef':
+                    return True
+        return False
 
     def __str__(self):
         return ' '.join(str(c) for c in self.children)
@@ -1111,6 +1120,24 @@ class ParenExpr(Expr, AbstractParenExpr):
         return '(' + str(self.expression) + ')'
 
 
+def get_declarator_identifier(declarator):
+    """
+    Returns a token or None if the declarator is abstract
+    """
+    if isinstance(declarator, LiteralExpr):
+        if declarator.kind == 'identifier':
+            return declarator.token
+    return None
+
+
+def get_declarator_name(declarator):
+    """
+    Returns a string or None if the declarator is abstract
+    """
+    token = get_declarator_identifier(declarator)
+    return None if token is None else token.string
+
+
 class TokenReader:
     """
     An utility to read a list of tokens.
@@ -1479,7 +1506,7 @@ class Parser(TokenReader):
 
     def parse_storage_class_specifier(self):
         """
-        Returns a TypeExpr or None
+        Returns a TypeSpecifierExpr or None
         """
         kw_strings = 'typedef extern static auto register'.split()
         token = self.parse_keyword(kw_strings)
@@ -1507,7 +1534,7 @@ class Parser(TokenReader):
 
     def parse_type_specifier(self):
         """
-        Returns a TypeSpecifierExpr or None
+        Returns an AbstractTypeSpecifierExpr or None
         """
         kw = self.parse_keyword(self.get_type_specifiers_strings())
         if kw is not None:
@@ -1545,7 +1572,7 @@ class Parser(TokenReader):
 
     def _parse_type_specifiers_list(self, allow_storage_class_specs):
         """
-        Returns a list of AbstractTypeSpecifier
+        Returns a list of AbstractTypeSpecifierExpr
         """
         specs = []
         if allow_storage_class_specs:
@@ -1610,6 +1637,11 @@ class Parser(TokenReader):
         if semicolon is None:
             self.index = begin
             return None
+        if type_expr.is_typedef:
+            if len(declarators) == 0:
+                self.raise_syntax_error("Expected type name after 'typedef'")
+            for d in declarators:
+                self.add_type(get_declarator_name(d))
         return DeclarationExpr(type_expr, declarators, semicolon)
 
     def parse_declaration_list(self):
@@ -2092,12 +2124,16 @@ class TestParser(unittest.TestCase):
             parse('struct s {a + a;}')
 
     def test_enum(self):
+        # TODO
         # self.checkDecl('enum s;')
         pass
 
     def test_typedef(self):
-        # TODO:
-        pass
+        with self.assertRaises(SyntaxError):
+            parse('a b;')
+
+        self.checkDecl('typedef int a;\n\n'
+                       'a b;')
 
 
 def get_argument_parser():
