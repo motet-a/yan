@@ -484,10 +484,14 @@ def makeAbstractBracketExpr(class_name, signs, name):
     Returns a new class
     """
     def __init__(self, left_bracket, right_bracket):
+        assert isinstance(left_bracket, Token)
         assert left_bracket.kind == 'sign'
         assert left_bracket.string == signs[0]
+
+        assert isinstance(right_bracket, Token)
         assert right_bracket.kind == 'sign'
         assert right_bracket.string == signs[1]
+
         self._left_bracket = left_bracket
         self._right_bracket = right_bracket
 
@@ -514,11 +518,51 @@ AbstractBraceExpr = makeAbstractBracketExpr('AbstractBraceExpr',
                                             '{}', 'brace')
 
 
+class AbstractTypeSpecifierExpr(Expr):
+    def __init__(self, children):
+        Expr.__init__(self, children)
+
+
+class TypeSpecifierExpr(AbstractTypeSpecifierExpr):
+    def __init__(self, specifier_token):
+        assert (specifier_token.kind == 'identifier' or
+                specifier_token.kind == 'keyword')
+        Expr.__init__(self, [])
+        self._token = specifier_token
+
+    @property
+    def token(self):
+        return self._token
+
+    @property
+    def tokens(self):
+        return self.token
+
+    def __str__(self):
+        return self.token.string
+
+
+class StructExpr(AbstractTypeSpecifierExpr):
+    pass
+
+
+class TypeExpr(Expr):
+    def __init__(self, children):
+        for child in children:
+            assert isinstance(child, AbstractTypeSpecifierExpr)
+        Expr.__init__(self, children)
+
+    def __str__(self):
+        return ' '.join(str(c) for c in self.children)
+
+
 class ParameterListExpr(Expr, AbstractParenExpr):
     def __init__(self, left_paren, parameters, right_paren):
+        assert isinstance(parameters, list)
+        for param in parameters:
+            assert isinstance(param, ParameterExpr)
         AbstractParenExpr.__init__(self, left_paren, right_paren)
         Expr.__init__(self, parameters)
-        assert isinstance(parameters, list)
         self.parameters = parameters
 
     @property
@@ -531,20 +575,23 @@ class ParameterListExpr(Expr, AbstractParenExpr):
 
 
 class ParameterExpr(Expr):
-    def __init__(self, specifiers_tokens, declarator=None):
+    def __init__(self, type_expr, declarator=None):
+        """
+        type_expr: a TypeExpr or None, if the declarator is not None
+        """
+        if declarator is None or type_expr is not None:
+            assert isinstance(type_expr, TypeExpr)
+
+        self._type_expr = type_expr
         Expr.__init__(self, [] if declarator is None else [declarator])
-        assert isinstance(specifiers_tokens, list)
-        if declarator is None:
-            assert len(specifiers_tokens) > 0
-        self.specifiers_tokens = specifiers_tokens
         self.declarator = declarator
 
     @property
-    def tokens(self):
-        return self.specifiers_tokens + self.declarator.tokens
+    def type_expr(self):
+        return self._type_expr
 
     def __str__(self):
-        specifiers = ' '.join(t.string for t in self.specifiers_tokens)
+        specifiers = str(self.type_expr)
         if self.declarator is None:
             return specifiers
         return '{} {}'.format(specifiers, self.declarator)
@@ -631,17 +678,17 @@ class FunctionDefinitionExpr(Expr):
     A function definition
     """
 
-    def __init__(self, specifiers_tokens, declarator, compound):
+    def __init__(self, type_expr, declarator, compound):
         """
         Warning: if the function returns a pointer, `declarator`
         is a PointerExpr.
         """
 
-        assert isinstance(specifiers_tokens, list)
+        assert isinstance(type_expr, TypeExpr)
         assert isinstance(compound, CompoundExpr)
 
-        Expr.__init__(self, [declarator, compound])
-        self.specifiers_tokens = specifiers_tokens
+        Expr.__init__(self, [type_expr, declarator, compound])
+        self.type_expr = type_expr
         self.declarator = declarator
         self.compound = compound
 
@@ -661,14 +708,8 @@ class FunctionDefinitionExpr(Expr):
     def parameters(self):
         return self.function.parameters
 
-    @property
-    def tokens(self):
-        return (self.specifiers_tokens +
-                self.declarator.tokens +
-                self.compound)
-
     def __str__(self):
-        s = ' '.join(t.string for t in self.specifiers_tokens)
+        s = str(self.type_expr)
         if len(s) > 0:
             s += ' '
         s += str(self.declarator)
@@ -676,7 +717,7 @@ class FunctionDefinitionExpr(Expr):
         return s
 
 
-class TypeExpr(Expr):
+class TypeNameExpr(Expr):
     def __init__(self, specifiers_tokens, declarator):
         Expr.__init__(self, [] if declarator is None else [declarator])
         self.specifiers_tokens = specifiers_tokens
@@ -718,24 +759,25 @@ class CastExpr(Expr, AbstractParenExpr):
 
 
 class DeclarationExpr(Expr):
-    def __init__(self, specifiers_tokens, declarators, semicolon_token):
-        Expr.__init__(self, declarators)
-        assert isinstance(specifiers_tokens, list)
+    def __init__(self, type_expr, declarators, semicolon_token):
+        assert isinstance(type_expr, TypeExpr)
         assert isinstance(declarators, list)
-        self.specifiers_tokens = specifiers_tokens
+
+        super().__init__([type_expr] + declarators)
+        self._type_expr = type_expr
         self.declarators = declarators
         self.semicolon_token = semicolon_token
 
     @property
+    def type_expr(self):
+        return self._type_expr
+
+    @property
     def tokens(self):
-        decl_tokens = []
-        for declarator in self.declarators:
-            decl_tokens += declarator.tokens
-        semicolon = self.semicolon_token
-        return (self.specifiers_tokens + decl_tokens + [semicolon])
+        return super().tokens + [self.semicolon_token]
 
     def __str__(self):
-        specifiers = ' '.join(t.string for t in self.specifiers_tokens)
+        specifiers = str(self.type_expr)
         declarators = ', '.join(str(d) for d in self.declarators)
         return '{} {};\n'.format(specifiers, declarators)
 
@@ -972,6 +1014,7 @@ class TranslationUnitExpr(Expr):
 
 class JumpStatementExpr(Expr):
     def __init__(self, keyword, expression, semicolon):
+        assert isinstance(keyword, Token)
         assert keyword in 'if while do'.split();
         Expr.__init__(self, [expression])
         self.keyword = keyword
@@ -1199,14 +1242,14 @@ class Parser(TokenReader):
         return LiteralExpr(token)
 
     def parse_parameter_declaration(self):
-        specifiers = self.parse_declaration_specifiers()
-        if len(specifiers) == 0:
+        type_expr = self.parse_declaration_specifiers()
+        if type_expr is None:
             return None
         declarator = self.parse_declarator(False)
         if declarator is None:
             declarator = self.parse_declarator(True)
         # declarator can be None
-        return ParameterExpr(specifiers, declarator)
+        return ParameterExpr(type_expr, declarator)
 
     def parse_parameter_type_list(self):
         left_paren = self.parse_sign('(')
@@ -1371,10 +1414,14 @@ class Parser(TokenReader):
 
     def parse_storage_class_specifier(self):
         """
-        Returns a token or None
+        Returns a TypeExpr or None
         """
         kw_strings = 'typedef extern static auto register'.split()
-        return self.parse_keyword(kw_strings)
+        token = self.parse_keyword(kw_strings)
+        if token is None:
+            return None
+        print(token)
+        return TypeSpecifierExpr(token)
 
     def get_type_specifiers_strings(self):
         return 'void char short int long float double signed unsigned'.split()
@@ -1383,27 +1430,29 @@ class Parser(TokenReader):
         kw = self.parse_keyword('struct union'.split())
         if kw is None:
             return None
+        # TODO
 
     def parse_type_specifier(self):
         """
-        Returns a token or None
+        Returns a TypeSpecifierExpr or None
         """
         kw = self.parse_keyword(self.get_type_specifiers_strings())
         if kw is not None:
-            return kw
+            return TypeSpecifierExpr(kw)
 
         begin = self.index
         token = self.parse_token('identifier')
         if token is not None and token.string in self.types:
-            return token
+            return TypeSpecifierExpr(token)
         self.index = begin
 
     def parse_type_qualifier(self):
         """
-        Returns a token or None
+        Returns a TypeSpecifierExpr or None
         """
         kw_strings = ('const volatile '.split())
-        return self.parse_keyword(kw_strings)
+        kw = self.parse_keyword(kw_strings)
+        return None if kw is None else TypeSpecifierExpr(kw)
 
     def parse_type_qualifier_list(self):
         """
@@ -1417,44 +1466,58 @@ class Parser(TokenReader):
             qualifiers.append(qualifier)
         return qualifiers
 
+    def _parse_type_specifiers_list(self, allow_storage_class_specs):
+        """
+        Returns a list of AbstractTypeSpecifier
+        """
+        specs = []
+        if allow_storage_class_specs:
+            spec = self.parse_storage_class_specifier()
+            if spec is not None:
+                specs.append(spec)
+
+        spec = self.parse_type_specifier()
+        if spec is not None:
+            specs.append(spec)
+
+        spec = self.parse_type_qualifier()
+        if spec is not None:
+            specs.append(spec)
+
+        if len(specs) == 0:
+            return specs
+        return specs + self._parse_type_specifiers_list(
+            allow_storage_class_specs)
+
+    def _parse_type_specifiers(self, allow_storage_class_specifiers):
+        """
+        Returns a TypeExpr or None
+        """
+        specs = self._parse_type_specifiers_list(
+            allow_storage_class_specifiers)
+        for spec in specs:
+            assert isinstance(spec, AbstractTypeSpecifierExpr)
+        if len(specs) == 0:
+            return None
+        return TypeExpr(specs)
+
     def parse_declaration_specifiers(self):
         """
-        Returns a list of tokens
+        Returns a TypeExpr or None
         """
-        tokens = []
-        token = self.parse_storage_class_specifier()
-        if token is not None:
-            tokens.append(token)
-        token = self.parse_type_specifier()
-        if token is not None:
-            tokens.append(token)
-        token = self.parse_type_qualifier()
-        if token is not None:
-            tokens.append(token)
-        if len(tokens) == 0:
-            return tokens
-        return tokens + self.parse_declaration_specifiers()
+        return self._parse_type_specifiers(True)
 
     def parse_specifier_qualifier_list(self):
         """
-        Returns a list of tokens
+        Returns a TypeExpr or None
         """
-        tokens = []
-        token = self.parse_type_specifier()
-        if token is not None:
-            tokens.append(token)
-        token = self.parse_type_qualifier()
-        if token is not None:
-            tokens.append(token)
-        if len(tokens) == 0:
-            return tokens
-        return tokens + self.parse_specifier_qualifier_list()
+        return self._parse_type_specifiers(False)
 
     def parse_type_name(self):
         specifiers = self.parse_specifier_qualifier_list()
         if len(specifiers) == 0:
             return None
-        return TypeExpr(specifiers, self.parse_declarator(abstract=True))
+        return TypeNameExpr(specifiers, self.parse_declarator(abstract=True))
 
     def filter_type_specifiers(self, tokens):
         return [t for t in tokens if
@@ -1462,15 +1525,15 @@ class Parser(TokenReader):
 
     def parse_declaration(self):
         begin = self.index
-        specifiers = self.parse_declaration_specifiers()
-        if len(specifiers) == 0:
+        type_expr = self.parse_declaration_specifiers()
+        if type_expr is None:
             return None
         declarators = self.parse_init_declarator_list()
         semicolon = self.parse_sign(';')
         if semicolon is None:
             self.index = begin
             return None
-        return DeclarationExpr(specifiers, declarators, semicolon)
+        return DeclarationExpr(type_expr, declarators, semicolon)
 
     def parse_declaration_list(self):
         declarations = []
@@ -1754,16 +1817,16 @@ class Parser(TokenReader):
         return CompoundExpr(left_brace, declarations, statements, right_brace)
 
     def parse_function_definition(self):
-        specifiers = self.parse_declaration_specifiers()
+        type_expr = self.parse_declaration_specifiers()
         declarator = self.parse_declarator()
         if declarator is None:
-            if len(specifiers) == 0:
+            if type_expr is None:
                 return None
             raise SyntaxError('Expected declarator', self.position)
         compound = self.parse_compound_statement()
         if compound is None:
             raise SyntaxError('Expected compound statement', self.position)
-        return FunctionDefinitionExpr(specifiers, declarator, compound)
+        return FunctionDefinitionExpr(type_expr, declarator, compound)
 
     def parse_external_declaration(self):
         decl = self.parse_declaration()
