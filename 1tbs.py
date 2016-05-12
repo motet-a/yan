@@ -679,6 +679,10 @@ class StatementExpr(Expr):
         return t + [self.semicolon]
 
     def __str__(self):
+        """
+        No newline at the end of the returned string because
+        statements in `for` loops are usually on the same line
+        """
         if self.expression is None:
             return ';'
         return str(self.expression) + ';'
@@ -733,7 +737,7 @@ class CompoundExpr(Expr, AbstractBraceExpr):
         if len(self.statements) > 0:
             if len(self.declarations) > 0:
                 s += '\n'
-            s += ''.join(str(s) for s in self.statements)
+            s += '\n'.join(str(s) for s in self.statements)
             s += '\n'
         s += '}'
         return s
@@ -2159,6 +2163,26 @@ class TestParser(unittest.TestCase):
         self.checkDecl('typedef int a;\n\n'
                        'a b;')
 
+    def test_if(self):
+        self.checkStatement('if (a)\n'
+                            'b;')
+
+        self.checkStatement('{\n'
+                            'if (a)\n'
+                            'b;\n'
+                            'c;\n'
+                            '}')
+
+    def test_while(self):
+        self.checkStatement('while (a)\n'
+                            'b;')
+
+        self.checkStatement('{\n'
+                            'while (a)\n'
+                            'b;\n'
+                            'c;\n'
+                            '}')
+
 
 def get_argument_parser():
     descr = 'Check your C programs against the "EPITECH norm".'
@@ -2211,9 +2235,8 @@ def check_file(source_file):
     source = source_file.read()
     print('tokenizing...')
     tokens = lex(source)
-    print('\n'.join(repr(t) for t in tokens))
-    print('parsing...')
     # print('\n'.join(repr(t) for t in tokens))
+    print('parsing...')
     ast = parse(tokens)
     print(str(ast))
 
