@@ -886,6 +886,29 @@ class BinaryOperationExpr(Expr):
         return '(' + s + ')'
 
 
+class TernaryOperationExpr(Expr):
+    def __init__(self, left, question, mid, colon, right):
+        assert question.string == '?'
+        assert colon.string == ':'
+        Expr.__init__(self, [left, mid, right])
+        self.left = left
+        self.question = question
+        self.mid = mid
+        self.colon = colon
+        self.right = right
+
+    @property
+    def tokens(self):
+        return (self.left.tokens +
+                [self.question] +
+                self.mid.tokens +
+                [self.colon] +
+                self.right.tokens)
+
+    def __str__(self):
+        return '{} ? {} : {}'.format(self.left, self.mid, self.right)
+
+
 class CallExpr(Expr, AbstractParenExpr):
     def __init__(self, expression, left_paren, arguments, right_paren):
         AbstractParenExpr.__init__(self, left_paren, right_paren)
@@ -1116,8 +1139,10 @@ class JumpStatementExpr(Expr):
         assert keyword.string in 'goto continue break return'.split()
         if keyword.string not in 'goto return':
             assert expression is None
+        assert isinstance(semicolon, Token)
+        assert semicolon.string == ';'
 
-        Expr.__init__(self, [expression])
+        Expr.__init__(self, [] if expression is None else [expression])
         self.keyword = keyword
         self.expression = expression
         self.semicolon = semicolon
@@ -1302,6 +1327,7 @@ class Parser(TokenReader):
 
         stddef = 'size_t ptrdiff_t'
         strings = {
+            'dirent.h':         'DIR',
             'setjmp.h':         'jmp_buf',
             'stddef.h':         stddef,
             'stdint.h':         stdint,
@@ -1314,6 +1340,26 @@ class Parser(TokenReader):
         }
         return {h: types.split() for h, types in strings.items()}
 
+    def _expand_local_header(self, header_name):
+        import os
+        file_name = self._tokens[0].begin.file_name
+        dir_name = os.path.dirname(file_name)
+        header_path = os.path.join(dir_name, header_name)
+        print('local header path:', header_path)
+        if not os.path.exists(header_path):
+            return self.expand_header(header_name, True)
+        with open(header_path) as h:
+            source = h.read()
+        tokens = lex(source, file_name=header_path)
+        parser = Parser(tokens)
+        parser._types = self._types[:]
+        try:
+            parser.parse()
+        except SyntaxError as e:
+            msg = e.message
+            print(msg)
+        self.add_types(parser._types)
+
     def expand_header(self, header_name, system):
         if (header_name, system) in self._included_headers:
             return
@@ -1321,6 +1367,8 @@ class Parser(TokenReader):
         headers_types = self.get_system_headers_types()
         if header_name in headers_types:
             self.add_types(headers_types[header_name])
+        else:
+            self._expand_local_header(header_name)
 
     def process_include(self, directive_string):
         s = directive_string
@@ -1772,18 +1820,18 @@ class Parser(TokenReader):
             if op.string == '(':
                 arguments = self.parse_argument_expression_list()
                 right_paren = self.expect_sign(')')
-                return CallExpr(left, op, arguments, right_paren)
+                left = CallExpr(left, op, arguments, right_paren)
             elif op.string == '[':
                 expr = self.parse_expression()
                 right_bracket = self.expect_sign(']')
-                return SubscriptExpr(left, op, expr, right_bracket)
+                left = SubscriptExpr(left, op, expr, right_bracket)
             elif op.string in '++ --'.split():
-                return UnaryOperationExpr(op, left, postfix=True)
+                left = UnaryOperationExpr(op, left, postfix=True)
             elif op.string in '. ->'.split():
                 identifier = self.parse_identifier()
                 if identifier is None:
                     self.raise_syntax_error('Expected an identifier')
-                return BinaryOperationExpr(left, op, identifier)
+                left = BinaryOperationExpr(left, op, identifier)
             else:
                 raise Exception()
         return left
@@ -1896,7 +1944,16 @@ class Parser(TokenReader):
                                            self.parse_logical_and_expression)
 
     def parse_conditional_expression(self):
-        return self.parse_logical_or_expression()
+        left = self.parse_logical_or_expression()
+        quest = self.parse_sign('?')
+        if quest is None:
+            return left
+        mid = self.parse_expression()
+        if mid is None:
+            self.raise_syntax_error('Expected expression')
+        colon = self.expect_sign(':')
+        right = self.parse_conditional_expression()
+        return TernaryOperationExpr(left, quest, mid, colon, right)
 
     def parse_constant_expression(self):
         return self.parse_conditional_expression()
@@ -1990,7 +2047,7 @@ class Parser(TokenReader):
             self.raise_syntax_error('Expected statement')
         return WhileExpr(while_token, left_paren, expr, right_paren, statement)
 
-    def parse_jump_statement(self):
+    def parse_return_statement(self):
         return_token = self.parse_keyword(['return'])
         if return_token is None:
             return None
@@ -2000,8 +2057,18 @@ class Parser(TokenReader):
             expr = self.parse_expression()
             if expr is None:
                 self.raise_syntax_error('Expected expression')
-            self.expect_sign(';')
+            semicolon = self.expect_sign(';')
         return JumpStatementExpr(return_token, expr, semicolon)
+
+    def parse_jump_statement(self):
+        r = self.parse_return_statement()
+        if r is not None:
+            return r
+        token = self.parse_keyword(['break', 'continue'])
+        if token is None:
+            return None
+        semicolon = self.expect_sign(';')
+        return JumpStatementExpr(token, None, semicolon)
 
     def parse_statement(self):
         s = self.parse_compound_statement()
@@ -2123,15 +2190,23 @@ class TestParser(unittest.TestCase):
         self.checkExpr('sizeof(123)')
         self.checkExpr('sizeof 123')
 
+    def test_call(self):
+        self.checkExpr('a()()()')
+
     def test_binary_operation(self):
         self.checkExpr('1 + 2', '(1 + 2)')
         self.checkExpr('1 + 2 * 3', '(1 + (2 * 3))')
         self.checkExpr('1 * 2 + 3', '((1 * 2) + 3)')
         self.checkExpr('1 + 2 + 3', '((1 + 2) + 3)')
 
+    def test_assign(self):
+        self.checkStatement('a = 2;')
+        self.checkStatement('a += 2;', '(a += 2);')
+
     def test_dot_operation(self):
         self.checkExpr('a.b')
         self.checkExpr('a->b')
+        self.checkExpr('a->b.c')
         with self.assertRaises(SyntaxError):
             parse_expr('a.""')
         with self.assertRaises(SyntaxError):
@@ -2358,7 +2433,7 @@ def test():
 def check_file(source_file):
     source = source_file.read()
     print('tokenizing...')
-    tokens = lex(source)
+    tokens = lex(source, file_name=source_file.name)
     # print('\n'.join(repr(t) for t in tokens))
     print('parsing...')
     ast = parse(tokens)
