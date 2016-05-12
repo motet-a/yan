@@ -182,8 +182,8 @@ SIGNS = '''
 &= ^= |=
 >> <<
 ++ --
-+ - * / %
 ->
++ - * / %
 && ||
 <= >=
 == !=
@@ -423,6 +423,11 @@ class TestLexer(unittest.TestCase):
 
     def test_sign(self):
         self.assertTokenEqual('++', 'sign', '++')
+        self.assertTokenEqual('.', 'sign', '.')
+        self.assertTokenEqual('...', 'sign', '...')
+        self.assertTokenEqual('>>', 'sign', '>>')
+        self.assertTokenEqual('->', 'sign', '->')
+        self.assertTokenEqual('-', 'sign', '-')
 
     def test_directive(self):
         self.assertTokenEqual('#ifdef a', 'directive', '#ifdef a')
@@ -873,6 +878,8 @@ class BinaryOperationExpr(Expr):
 
     def __str__(self):
         op = self.operator.string
+        if op in '. ->'.split():
+            return '{}{}{}'.format(self.left, op, self.right)
         s = '{} {} {}'.format(self.left, op, self.right)
         if op in '='.split():
             return s
@@ -1696,7 +1703,7 @@ class Parser(TokenReader):
         if left is None:
             return None
         while True:
-            op = self.parse_sign('[ ( ++ --'.split())
+            op = self.parse_sign('[ ( ++ -- . ->'.split())
             if op is None:
                 break
             if op.string == '(':
@@ -1709,6 +1716,11 @@ class Parser(TokenReader):
                 return SubscriptExpr(left, op, expr, right_bracket)
             elif op.string in '++ --'.split():
                 return UnaryOperationExpr(op, left, postfix=True)
+            elif op.string in '. ->'.split():
+                identifier = self.parse_identifier()
+                if identifier is None:
+                    self.raise_syntax_error('Expected an identifier')
+                return BinaryOperationExpr(left, op, identifier)
             else:
                 raise Exception()
         return left
@@ -1800,8 +1812,25 @@ class Parser(TokenReader):
         return self.parse_binary_operation('== !=',
                                            self.parse_relational_expression)
 
+    def parse_and_expression(self):
+        return self.parse_binary_operation('&',
+                                           self.parse_equality_expression)
+
+    def parse_exclusive_or_expression(self):
+        return self.parse_binary_operation('^',
+                                           self.parse_and_expression)
+
+    def parse_inclusive_or_expression(self):
+        return self.parse_binary_operation('|',
+                                           self.parse_exclusive_or_expression)
+
+    def parse_logical_and_expression(self):
+        return self.parse_binary_operation('&&',
+                                           self.parse_inclusive_or_expression)
+
     def parse_logical_or_expression(self):
-        return self.parse_equality_expression()
+        return self.parse_binary_operation('||',
+                                           self.parse_logical_and_expression)
 
     def parse_conditional_expression(self):
         return self.parse_logical_or_expression()
@@ -2035,6 +2064,21 @@ class TestParser(unittest.TestCase):
         self.checkExpr('1 + 2', '(1 + 2)')
         self.checkExpr('1 + 2 * 3', '(1 + (2 * 3))')
         self.checkExpr('1 * 2 + 3', '((1 * 2) + 3)')
+        self.checkExpr('1 + 2 + 3', '((1 + 2) + 3)')
+
+    def test_dot_operation(self):
+        self.checkExpr('a.b')
+        self.checkExpr('a->b')
+        with self.assertRaises(SyntaxError):
+            parse_expr('a.""')
+        with self.assertRaises(SyntaxError):
+            parse_expr('a->""')
+
+    def test_precedence(self):
+        self.checkExpr('1 || 2 && 3 | 4 ^ 5 & 6 == '
+                       '7 > 8 >> 9 + 10 % a.b',
+                       '(1 || (2 && (3 | (4 ^ (5 & (6 == '
+                       '(7 > (8 >> (9 + (10 % a.b))))))))))')
 
     def test_statement(self):
         self.checkStatement('0;')
