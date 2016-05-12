@@ -450,15 +450,18 @@ class Expr:
 
     @property
     def children(self):
-        return self._children
+        return self._children[:]
 
     @property
     def tokens(self):
-        if len(self) == 0:
-            raise Exception('Not implemented (this node is a leaf)')
         tokens = []
         for child in self.children:
             for t in child.tokens:
+                if not isinstance(t, Token):
+                    print()
+                    print(repr(child))
+                    print(repr(child.tokens))
+                    print()
                 assert isinstance(t, Token)
             tokens += child.tokens
         return tokens
@@ -540,7 +543,7 @@ class TypeSpecifierExpr(AbstractTypeSpecifierExpr):
 
     @property
     def tokens(self):
-        return self.token
+        return [self.token]
 
     def __str__(self):
         return self.token.string
@@ -596,7 +599,12 @@ class StructExpr(AbstractTypeSpecifierExpr):
 
     @property
     def tokens(self):
-        return [self.struct_token] + [self.identifier] + self.compound.tokens
+        t = [self.struct_token]
+        if self.identifier is not None:
+            t.append(self.identifier)
+        if self.compound is not None:
+            t += self.compound.tokens
+        return t
 
     def __str__(self):
         s = self.kind
@@ -627,18 +635,31 @@ class TypeExpr(Expr):
 
 
 class ParameterListExpr(Expr, AbstractParenExpr):
-    def __init__(self, left_paren, parameters, right_paren):
-        assert isinstance(parameters, list)
-        for param in parameters:
-            assert isinstance(param, ParameterExpr)
+    def __init__(self, left_paren, parameters_commas, right_paren):
+        assert isinstance(parameters_commas, list)
+        params = [p for p in parameters_commas if isinstance(p, Expr)]
         AbstractParenExpr.__init__(self, left_paren, right_paren)
-        Expr.__init__(self, parameters)
-        self.parameters = parameters
+        Expr.__init__(self, params)
+        self._parameters = params
+        self._parameters_commas = parameters_commas
+
+    @property
+    def parameters(self):
+        return self._parameters[:]
+
+    @property
+    def parameters_commas(self):
+        return self._parameters_commas[:]
 
     @property
     def tokens(self):
-        parameters_tokens = [p.tokens for p in self.parameters]
-        return self.left_paren + parameters_tokens + self.right_paren
+        parameters_tokens = []
+        for pc in self.parameters_commas:
+            if isinstance(pc, Expr):
+                parameters_tokens += pc.tokens
+            else:
+                parameters_tokens.append(pc)
+        return [self.left_paren] + parameters_tokens + [self.right_paren]
 
     def __str__(self):
         return '(' + ', '.join(str(p) for p in self.parameters) + ')'
@@ -653,7 +674,8 @@ class ParameterExpr(Expr):
             assert isinstance(type_expr, TypeExpr)
 
         self._type_expr = type_expr
-        Expr.__init__(self, [] if declarator is None else [declarator])
+        children = [type_expr] + ([] if declarator is None else [declarator])
+        Expr.__init__(self, children)
         self.declarator = declarator
 
     @property
@@ -701,14 +723,17 @@ class FunctionExpr(Expr):
     def __init__(self, declarator, parameters):
         assert isinstance(declarator, Expr)
         assert isinstance(parameters, ParameterListExpr)
+        for t in parameters.tokens:
+            assert isinstance(t, Token)
         Expr.__init__(self, [declarator, parameters])
         self.declarator = declarator
         self.parameters = parameters
 
     @property
     def tokens(self):
-        return (self.declarator.tokens +
-                self.parameters.tokens)
+        for t in self.parameters.tokens:
+            assert isinstance(t, Token)
+        return (self.declarator.tokens + self.parameters.tokens)
 
     def __str__(self):
         return '{}{}'.format(self.declarator, self.parameters)
@@ -730,10 +755,13 @@ class CompoundExpr(Expr, AbstractBraceExpr):
 
     @property
     def tokens(self):
-        return ([self.left_brace] +
-                self.declarations.tokens +
-                self.statements.tokens +
-                [self.rigth_brace])
+        tokens = [self.left_brace]
+        for d in self.declarations:
+            tokens += d.tokens
+        for s in self.statements:
+            tokens += s.tokens
+        tokens.append(self.right_brace)
+        return tokens
 
     def __str__(self):
         s = '{\n'
@@ -824,7 +852,7 @@ class CastExpr(Expr, AbstractParenExpr):
     def tokens(self):
         tokens = [self.left_paren]
         tokens += self.type_name.tokens
-        tokens += [self.rigth_paren]
+        tokens += [self.right_paren]
         tokens += self.expression.tokens
         return tokens
 
@@ -835,19 +863,29 @@ class CastExpr(Expr, AbstractParenExpr):
 
 
 class DeclarationExpr(Expr):
-    def __init__(self, type_expr, declarators, semicolon_token):
+    def __init__(self, type_expr, declarators_commas, semicolon_token):
         """
-        declarators: A list of the declarators (the variable names), can
-        be empty
-
+        declarators_commas: A list of the declarators (the variable names)
+        separated by comma tokens, can be empty
         """
         assert isinstance(type_expr, TypeExpr)
-        assert isinstance(declarators, list)
+        assert isinstance(declarators_commas, list)
+
+        declarators = [d for d in declarators_commas if isinstance(d, Expr)]
 
         super().__init__([type_expr] + declarators)
         self._type_expr = type_expr
-        self.declarators = declarators
+        self._declarators = declarators
+        self._declarators_commas = declarators_commas
         self.semicolon_token = semicolon_token
+
+    @property
+    def declarators(self):
+        return self._declarators[:]
+
+    @property
+    def declarators_commas(self):
+        return self._declarators_commas[:]
 
     @property
     def type_expr(self):
@@ -855,7 +893,14 @@ class DeclarationExpr(Expr):
 
     @property
     def tokens(self):
-        return super().tokens + [self.semicolon_token]
+        tokens = self.type_expr.tokens
+        for dc in self.declarators_commas:
+            if isinstance(dc, Expr):
+                tokens += dc.tokens
+            else:
+                tokens.append(dc)
+        tokens.append(self.semicolon_token)
+        return tokens
 
     def __str__(self):
         s = str(self.type_expr)
@@ -874,14 +919,14 @@ class BinaryOperationExpr(Expr):
 
     @property
     def tokens(self):
-        return self.left.tokens + [self.operator] + self.left.tokens
+        return self.left.tokens + [self.operator] + self.right.tokens
 
     def __str__(self):
         op = self.operator.string
         if op in '. ->'.split():
             return '{}{}{}'.format(self.left, op, self.right)
         s = '{} {} {}'.format(self.left, op, self.right)
-        if op in '='.split():
+        if op != '==' and op != '!=' and '=' in op:
             return s
         return '(' + s + ')'
 
@@ -910,17 +955,30 @@ class TernaryOperationExpr(Expr):
 
 
 class CallExpr(Expr, AbstractParenExpr):
-    def __init__(self, expression, left_paren, arguments, right_paren):
+    def __init__(self, expression, left_paren, args_commas, right_paren):
         AbstractParenExpr.__init__(self, left_paren, right_paren)
+        arguments = [ac for ac in args_commas if isinstance(ac, Expr)]
         Expr.__init__(self, [expression] + arguments)
         self.expression = expression
-        self.arguments = arguments
+        self._arguments = arguments
+        self._args_commas = args_commas
+
+    @property
+    def arguments(self):
+        return self._arguments[:]
+
+    @property
+    def arguments_commas(self):
+        return self._args_commas[:]
 
     @property
     def tokens(self):
         args_tokens = []
-        for arg in self.arguments:
-            args_tokens += arg.tokens
+        for arg_or_comma in self.arguments_commas:
+            if isinstance(arg_or_comma, Expr):
+                args_tokens += arg_or_comma.tokens
+            else:
+                args_tokens.append(arg_or_comma)
         return (self.expression.tokens +
                 [self.left_paren] + args_tokens + [self.right_paren])
 
@@ -1004,13 +1062,13 @@ class PointerExpr(Expr):
         return tokens
 
     def __str__(self):
-        s = '(*'
+        s = '*'
         s += ' '.join(q.string for q in self.type_qualifiers)
         if len(self.type_qualifiers) > 0:
             s += ' '
         if self.right is not None:
             s += str(self.right)
-        s += ')'
+        s += ''
         return s
 
 
@@ -1075,7 +1133,7 @@ class WhileExpr(Expr, AbstractParenExpr):
     def tokens(self):
         tokens = [self.while_token, self.left_paren]
         tokens += self.expression.tokens
-        tokens += [right_paren]
+        tokens += [self.right_paren]
         tokens += self.statement.tokens
         return tokens
 
@@ -1104,7 +1162,7 @@ class IfExpr(Expr, AbstractParenExpr):
     def tokens(self):
         tokens = [self.if_token, self.left_paren]
         tokens += self.expression.tokens
-        tokens += [right_paren]
+        tokens += [self.right_paren]
         tokens += self.statement.tokens
         if self.else_token is not None:
             tokens.append(self.else_token)
@@ -1189,6 +1247,8 @@ def get_declarator_identifier(declarator):
         return get_declarator_identifier(declarator.expression)
     if isinstance(declarator, FunctionExpr):
         return get_declarator_identifier(declarator.declarator)
+    if isinstance(declarator, ParenExpr):
+        return get_declarator_identifier(declarator.expression)
     return None
 
 
@@ -1483,18 +1543,22 @@ class Parser(TokenReader):
         left_paren = self.parse_sign('(')
         if left_paren is None:
             return None
-        params = []
+        params_commas = []
+        comma = None
         while self.has_more:
-            if len(params) > 0 and self.parse_sign(',') is None:
-                break
+            if len(params_commas) > 0:
+                comma = self.parse_sign(',')
+                if comma is None:
+                    break
+                params_commas.append(comma)
             param = self.parse_parameter_declaration()
             if param is None:
-                if len(params) > 0:
+                if len(params_commas) > 0:
                     self.raise_syntax_error("Expected parameter after ','")
                 break
-            params.append(param)
+            params_commas.append(param)
         right_paren = self.expect_sign(')')
-        return ParameterListExpr(left_paren, params, right_paren)
+        return ParameterListExpr(left_paren, params_commas, right_paren)
 
     def parse_declarator_parens(self, abstract=False):
         begin = self.index
@@ -1505,7 +1569,7 @@ class Parser(TokenReader):
             decl = self.parse_declarator(abstract)
             if decl is not None:
                 right_paren = self.expect_sign(')')
-                return decl
+                return ParenExpr(left_paren, decl, right_paren)
             self.index = begin
         return None
 
@@ -1626,15 +1690,24 @@ class Parser(TokenReader):
         return declarator
 
     def parse_init_declarator_list(self):
+        """
+        Returns a list of declarators separated by commas
+        """
         declarators = []
+        comma = None
         while self.has_more:
             declarator = self.parse_init_declarator()
             if declarator is None:
-                break
+                if comma is None:
+                    break
+                else:
+                    self.raise_syntax_error("Expected declarator after ','",
+                                            comma.begin)
             declarators.append(declarator)
             comma = self.parse_sign(',')
             if comma is None:
                 break
+            declarators.append(comma)
         return declarators
 
     def parse_storage_class_specifier(self):
@@ -1773,17 +1846,18 @@ class Parser(TokenReader):
         type_expr = self.parse_declaration_specifiers()
         if type_expr is None:
             return None
-        declarators = self.parse_init_declarator_list()
+        declarators_commas = self.parse_init_declarator_list()
         semicolon = self.parse_sign(';')
         if semicolon is None:
             self.index = begin
             return None
         if type_expr.is_typedef:
-            if len(declarators) == 0:
+            if len(declarators_commas) == 0:
                 self.raise_syntax_error("Expected type name after 'typedef'")
-            for d in declarators:
-                self._add_type_from_declarator(d)
-        return DeclarationExpr(type_expr, declarators, semicolon)
+            for d_or_c in declarators_commas:
+                if isinstance(d_or_c, Expr):
+                    self._add_type_from_declarator(d_or_c)
+        return DeclarationExpr(type_expr, declarators_commas, semicolon)
 
     def parse_declaration_list(self):
         declarations = []
@@ -1795,19 +1869,20 @@ class Parser(TokenReader):
         return declarations
 
     def parse_argument_expression_list(self):
-        arguments = []
+        args_commas = []
         while True:
-            if len(arguments) > 0:
+            if len(args_commas) > 0:
                 comma = self.parse_sign(',')
                 if comma is None:
                     break
+                args_commas.append(comma)
             argument = self.parse_assignment_expression()
             if argument is None:
-                if len(arguments) == 0:
+                if len(args_commas) == 0:
                     break
                 self.raise_syntax_erorr('Expected argument')
-            arguments.append(argument)
-        return arguments
+            args_commas.append(argument)
+        return args_commas
 
     def parse_postfix_expression(self):
         left = self.parse_primary_expression()
@@ -1818,9 +1893,9 @@ class Parser(TokenReader):
             if op is None:
                 break
             if op.string == '(':
-                arguments = self.parse_argument_expression_list()
+                args_commas = self.parse_argument_expression_list()
                 right_paren = self.expect_sign(')')
-                left = CallExpr(left, op, arguments, right_paren)
+                left = CallExpr(left, op, args_commas, right_paren)
             elif op.string == '[':
                 expr = self.parse_expression()
                 right_bracket = self.expect_sign(']')
@@ -2151,8 +2226,20 @@ def parse(v):
     """
     v: a string or a list of tokens
     """
-    parser = Parser(argument_to_tokens(v))
-    return parser.parse()
+    tokens = argument_to_tokens(v)
+    parser = Parser(tokens)
+    tree = parser.parse()
+    tokens = [t for t in tokens if t.kind not in 'comment directive'.split()]
+    if len(tokens) != len(tree.tokens):
+        if isinstance(v, str):
+            print(v)
+        print(tree)
+        print()
+        print('\n'.join(repr(t) for t in tokens))
+        print()
+        print('\n'.join(repr(t) for t in tree.tokens))
+    assert len(tokens) == len(tree.tokens)
+    return tree
 
 
 def parse_statement(v):
@@ -2201,7 +2288,7 @@ class TestParser(unittest.TestCase):
 
     def test_assign(self):
         self.checkStatement('a = 2;')
-        self.checkStatement('a += 2;', '(a += 2);')
+        self.checkStatement('a += 2;')
 
     def test_dot_operation(self):
         self.checkExpr('a.b')
@@ -2229,8 +2316,7 @@ class TestParser(unittest.TestCase):
     def test_decl(self):
         self.checkDecl('long unsigned register int b, c;')
         self.checkDecl('const volatile int b, c = 1;')
-        self.checkDecl('int **b, *c = 1;',
-                       'int (*(*b)), (*c) = 1;')
+        self.checkDecl('int **b, *c = 1;',)
 
     def test_function_decl(self):
         self.checkDecl('void f(long a);')
@@ -2251,22 +2337,16 @@ class TestParser(unittest.TestCase):
                        'a;\n'
                        '}')
 
-        self.checkDecl('void f(short b)'
-                       '{'
-                       '  char *a, c; int c; 7 += a;'
-                       '}',
-                       'void f(short b)\n'
+        self.checkDecl('void f(short b)\n'
                        '{\n'
-                       'char (*a), c;\n'
+                       'char *a, c;\n'
                        'int c;\n'
                        '\n'
                        '(7 += a);\n'
                        '}')
 
-        self.checkDecl('char *strdup(const char *);',
-                       'char (*strdup(const char (*)));')
-        self.checkDecl('char *strdup(const char *s);',
-                       'char (*strdup(const char (*s)));')
+        self.checkDecl('char *strdup(const char *);')
+        self.checkDecl('char *strdup(const char *s);')
 
     def test_function_pointer(self):
         self.checkDecl('int (*getFunc())(int, int (*)(long));')
