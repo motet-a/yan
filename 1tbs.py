@@ -262,8 +262,8 @@ def get_lexer_regexp():
 def check_directive(string, begin):
     string = string.strip()[1:].strip()
     if string.startswith('include'):
-        system_include_pattern = r'^include\s+<[\w\.]+>$'
-        local_include_pattern = r'^include\s+"[\w\.]+"$'
+        system_include_pattern = r'^include\s+<[\w\./]+>$'
+        local_include_pattern = r'^include\s+"[\w\./]+"$'
         if (re.match(system_include_pattern, string) is None and
                 re.match(local_include_pattern, string) is None):
             msg = "Invalid #include directive (was {!r})".format('#' + string)
@@ -961,6 +961,11 @@ class SubscriptExpr(Expr, AbstractBracketExpr):
 
 
 class PointerExpr(Expr):
+    """
+    Represents a pointer declaration.
+
+    This class cannot extend UnaryOperationExpr since `right` can be None.
+    """
     def __init__(self, star, right, type_qualifiers):
         assert(star.string == '*')
         Expr.__init__(self, [] if right is None else [right])
@@ -1153,6 +1158,12 @@ def get_declarator_identifier(declarator):
     if isinstance(declarator, LiteralExpr):
         if declarator.kind == 'identifier':
             return declarator.token
+    if isinstance(declarator, PointerExpr):
+        return get_declarator_identifier(declarator.right)
+    if isinstance(declarator, SubscriptExpr):
+        return get_declarator_identifier(declarator.expression)
+    if isinstance(declarator, FunctionExpr):
+        return get_declarator_identifier(declarator.declarator)
     return None
 
 
@@ -1246,6 +1257,49 @@ class Parser(TokenReader):
         stdint += ['u' + type for type in stdint]
         stdint = ' '.join(stdint)
 
+        # http://pubs.opengroup.org/onlinepubs/009696699/basedefs/sys/types.h.html
+        sys_types = """
+        blkcnt_t
+        blksize_t
+        clock_t
+        clockid_t
+        dev_t
+        fsblkcnt_t
+        fsfilcnt_t
+        gid_t
+        id_t
+        ino_t
+        key_t
+        mode_t
+        nlink_t
+        off_t
+        pid_t
+        pthread_attr_t
+        pthread_barrier_t
+        pthread_barrierattr_t
+        pthread_cond_t
+        pthread_condattr_t
+        pthread_key_t
+        pthread_mutex_t
+        pthread_mutexattr_t
+        pthread_once_t
+        pthread_rwlock_t
+        pthread_rwlockattr_t
+        pthread_spinlock_t
+        pthread_t
+        size_t
+        ssize_t
+        suseconds_t
+        time_t
+        timer_t
+        trace_attr_t
+        trace_event_id_t
+        trace_event_set_t
+        trace_id_t
+        uid_t
+        useconds_t
+        """
+
         stddef = 'size_t ptrdiff_t'
         strings = {
             'setjmp.h':         'jmp_buf',
@@ -1256,6 +1310,7 @@ class Parser(TokenReader):
             'string.h':         stddef,
             'time.h':           stddef + ' clock_t time_t',
             'unistd.h':         stddef + ' ssize_t',
+            'sys/types.h':      sys_types,
         }
         return {h: types.split() for h, types in strings.items()}
 
@@ -1657,6 +1712,14 @@ class Parser(TokenReader):
         return [t for t in tokens if
                 t.string in self.get_type_specifiers_strings()]
 
+    def _add_type_from_declarator(self, decl):
+        name = get_declarator_name(decl)
+        if name is None:
+            msg = ('Cannot retrieve the name of the declarator '
+                   '{!r} (repr: {!r})'.format(str(decl), decl))
+            raise Exception(msg)
+        self.add_type(get_declarator_name(decl))
+
     def parse_declaration(self):
         begin = self.index
         type_expr = self.parse_declaration_specifiers()
@@ -1671,7 +1734,7 @@ class Parser(TokenReader):
             if len(declarators) == 0:
                 self.raise_syntax_error("Expected type name after 'typedef'")
             for d in declarators:
-                self.add_type(get_declarator_name(d))
+                self._add_type_from_declarator(d)
         return DeclarationExpr(type_expr, declarators, semicolon)
 
     def parse_declaration_list(self):
@@ -2137,6 +2200,11 @@ class TestParser(unittest.TestCase):
                        '{\n'
                        '}')
 
+    def test_unknown_header(self):
+        self.checkDecl('#include <_unknown_header_ieuaeiuaeiua_>\n'
+                       'int n;',
+                       'int n;')
+
     def test_size_t(self):
         with self.assertRaises(SyntaxError):
             parse('size_t n;')
@@ -2204,8 +2272,20 @@ class TestParser(unittest.TestCase):
         with self.assertRaises(SyntaxError):
             parse('a b;')
 
-        self.checkDecl('typedef int a;\n\n'
-                       'a b;')
+        self.checkDecl('typedef int (*a);\n\n'
+                       'typedef a b;\n\n'
+                       'b c;')
+        self.checkDecl('typedef int a[32];')
+        self.checkDecl('typedef int (*a)();')
+        self.checkDecl('typedef int a;')
+
+    def test_typedef_struct(self):
+        self.checkDecl('typedef struct s_dir\n'
+                       '{\n'
+                       'int n;\n'
+                       'int m;\n'
+                       '} t_dir;\n\n'
+                       't_dir d;')
 
     def test_if(self):
         self.checkStatement('if (a)\n'
