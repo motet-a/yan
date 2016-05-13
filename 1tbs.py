@@ -111,26 +111,32 @@ class Token:
         )
 
 
-class OTBSWarning:
+class AbstractIssue:
     def __init__(self, message, position):
         assert isinstance(message, str)
         assert isinstance(position, Position)
-        self.message = message
-        self.position = position
+        self._message = message
+        self._position = position
+
+    @property
+    def message(self):
+        return self._message
+
+    @property
+    def position(self):
+        return self._position
 
     def __str__(self):
         return "{}: {}".format(self.position, self.message)
 
 
-class SyntaxError(Exception, OTBSWarning):
+class SyntaxError(Exception, AbstractIssue):
     def __init__(self, message, position):
         Exception.__init__(self, message)
-        OTBSWarning.__init__(self, message, position)
-        self.message = message
-        self.position = position
+        AbstractIssue.__init__(self, message, position)
 
     def __str__(self):
-        return OTBSWarning.__str__(self)
+        return AbstractIssue.__str__(self)
 
 
 def raise_expected_string(expected_string, position):
@@ -1355,6 +1361,7 @@ class Parser(TokenReader):
         TokenReader.__init__(self, tokens)
         self._types = []
         self._included_headers = []
+        self._in_typedef = False
 
     @property
     def types(self):
@@ -1454,7 +1461,6 @@ class Parser(TokenReader):
         file_name = self._tokens[0].begin.file_name
         dir_name = os.path.dirname(file_name)
         header_path = os.path.join(dir_name, header_name)
-        print('local header path:', header_path)
         if not os.path.exists(header_path):
             return self.expand_header(header_name, True)
         with open(header_path) as h:
@@ -1466,7 +1472,8 @@ class Parser(TokenReader):
             parser.parse()
         except SyntaxError as e:
             msg = e.message
-            print(msg)
+            print("In file included from {}:".format(file_name))
+            raise e
         self.add_types(parser._types)
 
     def expand_header(self, header_name, system):
@@ -1562,7 +1569,7 @@ class Parser(TokenReader):
         token = self.parse_token('identifier')
         if token is None:
             return token
-        if token.string in self.types:
+        if token.string in self.types and not self._in_typedef:
             self.index = begin
             return None
         return token
@@ -1792,13 +1799,18 @@ class Parser(TokenReader):
         return StructExpr(kw, identifier, compound)
         # TODO
 
-    def parse_type_specifier(self):
+    def parse_type_specifier(self, allowed_type_specs='bc'):
         """
         Returns an AbstractTypeSpecifierExpr or None
         """
-        kw = self.parse_keyword(self.get_type_specifiers_strings())
-        if kw is not None:
-            return TypeSpecifierExpr(kw)
+
+        if 'b' in allowed_type_specs:
+            kw = self.parse_keyword(self.get_type_specifiers_strings())
+            if kw is not None:
+                return TypeSpecifierExpr(kw)
+
+        if 'c' not in allowed_type_specs:
+            return None
 
         struct = self.parse_struct_or_union_specifier()
         if struct is not None:
@@ -1809,6 +1821,7 @@ class Parser(TokenReader):
         if token is not None and token.string in self.types:
             return TypeSpecifierExpr(token)
         self.index = begin
+        return None
 
     def parse_type_qualifier(self):
         """
@@ -1830,7 +1843,9 @@ class Parser(TokenReader):
             qualifiers.append(qualifier)
         return qualifiers
 
-    def _parse_type_specifiers_list(self, allow_storage_class_specs):
+    def _parse_type_specifiers_list(self,
+                                    allow_storage_class_specs,
+                                    allowed_type_specs='bc'):
         """
         Returns a list of AbstractTypeSpecifierExpr
         """
@@ -1840,9 +1855,15 @@ class Parser(TokenReader):
             if spec is not None:
                 specs.append(spec)
 
-        spec = self.parse_type_specifier()
+        spec = self.parse_type_specifier(allowed_type_specs)
         if spec is not None:
             specs.append(spec)
+            is_keyword = (isinstance(spec, TypeSpecifierExpr) and
+                          spec.token.kind == 'keyword')
+            if is_keyword:
+                allowed_type_specs = 'b'
+            else:
+                allowed_type_specs = ''
 
         spec = self.parse_type_qualifier()
         if spec is not None:
@@ -1850,8 +1871,9 @@ class Parser(TokenReader):
 
         if len(specs) == 0:
             return specs
-        return specs + self._parse_type_specifiers_list(
-            allow_storage_class_specs)
+        others = self._parse_type_specifiers_list(allow_storage_class_specs,
+                                                  allowed_type_specs)
+        return specs + others
 
     def _parse_type_specifiers(self, allow_storage_class_specifiers):
         """
@@ -1893,14 +1915,17 @@ class Parser(TokenReader):
             msg = ('Cannot retrieve the name of the declarator '
                    '{!r} (repr: {!r})'.format(str(decl), decl))
             raise Exception(msg)
-        self.add_type(get_declarator_name(decl))
+        self.add_type(name)
 
     def parse_declaration(self):
         begin = self.index
         type_expr = self.parse_declaration_specifiers()
         if type_expr is None:
             return None
+        if type_expr.is_typedef:
+            self._in_typedef = True
         declarators = self.parse_init_declarator_list()
+        self._in_typedef = False
         semicolon = self.parse_sign(';')
         if semicolon is None:
             self.index = begin
@@ -2486,6 +2511,9 @@ class TestParser(unittest.TestCase):
         pass
 
     def test_typedef(self):
+        self.checkDecl('typedef int a;\n\n'
+                       'typedef int a;')
+
         with self.assertRaises(SyntaxError):
             parse('a b;')
 
@@ -2494,7 +2522,6 @@ class TestParser(unittest.TestCase):
                        'b c;')
         self.checkDecl('typedef int a[32];')
         self.checkDecl('typedef int (*a)();')
-        self.checkDecl('typedef int a;')
 
     def test_typedef_struct(self):
         self.checkDecl('typedef struct s_dir\n'
@@ -2547,6 +2574,93 @@ class TestParser(unittest.TestCase):
             parse_expr('123').select('eiaueiuaeiua')
 
 
+class StyleIssue(AbstractIssue):
+    def __init__(self, message, position, level='error'):
+        assert level in 'warn error'.split()
+        super().__init__(message, position)
+        self._level = level
+
+    @property
+    def level(self):
+        return self._level
+
+
+class StyleChecker:
+    def __init__(self, issue_handler):
+        self._issue_handler = issue_handler
+
+    def issue(self, issue):
+        assert isinstance(issue, StyleIssue)
+        self._issue_handler(issue)
+
+    def warn(self, message, position):
+        self.issue(StyleIssue(message, position, level='warn'))
+
+    def error(self, message, position):
+        self.issue(StyleIssue(message, position))
+
+    def check(self, tokens, expr):
+        raise Exception('Not implemented')
+
+
+class HeaderCommentChecker(StyleChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+
+    def check_login(self, login, position):
+        if not re.match(r'\w+_\w', login):
+            self.warn("Not a valid EPITECH login (was {!r})".format(login),
+                      position)
+
+    def check_line(self, i, line, position):
+        if i == 0:
+            if line != '/*':
+                self.error("The header must start with '/*'", position)
+        elif i == 8:
+            if line != '*/':
+                self.error("The header must end with '*/'", position)
+        elif line[:3].strip() != '**':
+            self.error("The header lines should start with '**'", position)
+
+        if i == 3:
+            login = line.split()[-1]
+            self.check_login(login, position)
+            if not line.startswith("** Made by"):
+                self.error("Invalid 'Made by' line", position)
+        if i == 6:
+            login = line.split()[-1]
+            self.check_login(login, position)
+            if not line.startswith("** Started on"):
+                self.error("Invalid 'Started on' line", position)
+        if i == 7:
+            login = line.split()[-1]
+            self.check_login(login, position)
+            if not line.startswith("** Last update"):
+                self.error("Invalid 'Last update' line", position)
+
+    def check_header(self, token):
+        lines = token.string.splitlines()
+        if len(lines) != 9:
+            self.error('The header must be 9 lines long', token.begin)
+        for i, line in enumerate(lines):
+            self.check_line(i, line, token.begin)
+
+    def check(self, tokens, expr):
+        for token in tokens:
+            if token.kind == 'comment' and token.begin.line == 1:
+                self.check_header(token)
+                return
+        self.error("No header comment", tokens[0].begin)
+
+
+class CommentChecker(StyleChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+
+    def check(self, tokens, expr):
+        pass
+
+
 def get_argument_parser():
     descr = 'Check your C programs against the "EPITECH norm".'
     parser = argparse.ArgumentParser(description=descr)
@@ -2594,14 +2708,16 @@ def test():
         print(parse(source))
 
 
-def check_file(source_file):
+def check_file(source_file, checkers):
     source = source_file.read()
-    print('tokenizing...')
     tokens = lex(source, file_name=source_file.name)
-    # print('\n'.join(repr(t) for t in tokens))
-    print('parsing...')
-    ast = parse(tokens)
-    print(str(ast))
+    root_expr = parse(tokens)
+    for checker in checkers:
+        checker.check(tokens, root_expr)
+
+
+def print_issue(issue):
+    print(issue)
 
 
 def main():
@@ -2610,8 +2726,15 @@ def main():
     if args.test:
         test()
         return
+
+    checkers_classes = [
+        CommentChecker,
+        HeaderCommentChecker,
+    ]
+    checkers = [c(print_issue) for c in checkers_classes]
+
     for source_file in args.source_files:
-        check_file(source_file)
+        check_file(source_file, checkers)
         source_file.close()
 
 
