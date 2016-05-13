@@ -2606,6 +2606,34 @@ class StyleChecker:
         raise Exception('Not implemented')
 
 
+class SourceChecker(StyleChecker):
+    """
+    Like a StyleChecker, but accepts a string containing the source
+    code of the file
+    """
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+
+    def check(self, source, tokens, expr):
+        raise Exception('Not implemented')
+
+
+class LineLengthChecker(SourceChecker):
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler)
+
+    def check(self, source, tokens, expr):
+        lines = source.splitlines()
+        index = 0
+        for line_index, line in enumerate(lines):
+            if len(line) > 80:
+                pos = Position(tokens[0].begin.file_name,
+                               index,
+                               line_index + 1)
+                self.warn("Line too long (more than 80 characters)", pos)
+            index += len(line)
+
+
 class HeaderCommentChecker(StyleChecker):
     def __init__(self, issue_handler, options):
         self.username_check_enabled = options.header_username
@@ -2755,9 +2783,40 @@ class ReturnChecker(StyleChecker):
     def check(self, tokens, expr):
         returns = expr.select('jump')
         for return_expr in returns:
-            if (return_expr.keyword.string == 'return' and
-                return_expr.expression is not None):
-                self.check_return(return_expr)
+            if return_expr.keyword.string == 'return':
+                if return_expr.expression is not None:
+                    self.check_return(return_expr)
+
+
+class FunctionLengthChecker(StyleChecker):
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler)
+
+    def check(self, tokens, expr):
+        funcs = expr.select('function_definition')
+        for func in funcs:
+            begin = func.compound.left_brace
+            begin_line = begin.begin.line
+            end_line = func.compound.right_brace.begin.line
+            line_count = end_line - begin_line - 1
+            if line_count > 25:
+                self.error('Too long function (more than 25 lines)',
+                           func.compound.left_brace.begin)
+                return
+            elif line_count > 24:
+                self.warn('Long function ({} lines)'.format(line_count),
+                           func.compound.left_brace.begin)
+
+
+class FunctionCountChecker(StyleChecker):
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler)
+
+    def check(self, tokens, expr):
+        funcs = expr.select('function_definition')
+        if len(funcs) > 5:
+            self.error('Too many functions (more than 5)',
+                       expr.tokens[0].begin)
 
 
 def get_argument_parser():
@@ -2814,7 +2873,10 @@ def check_file(source_file, checkers):
     tokens = lex(source, file_name=source_file.name)
     root_expr = parse(tokens)
     for checker in checkers:
-        checker.check(tokens, root_expr)
+        if isinstance(checker, SourceChecker):
+            checker.check(source, tokens, root_expr)
+        else:
+            checker.check(tokens, root_expr)
 
 
 def print_issue(issue):
@@ -2829,11 +2891,14 @@ def main():
         return
 
     checkers_classes = [
-        CommentChecker,
-        HeaderCommentChecker,
         BinaryOpSpaceChecker,
-        UnaryOpSpaceChecker,
+        CommentChecker,
+        FunctionLengthChecker,
+        FunctionCountChecker,
+        HeaderCommentChecker,
+        LineLengthChecker,
         ReturnChecker,
+        UnaryOpSpaceChecker,
     ]
     checkers = [c(print_issue, args) for c in checkers_classes]
 
