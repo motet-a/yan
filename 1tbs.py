@@ -2845,6 +2845,40 @@ class FunctionCountChecker(StyleChecker):
                        expr.first_token.begin)
 
 
+class DirectiveIndentationChecker(StyleChecker):
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler)
+
+    def get_indent_level(self, string, position):
+        level = 0
+        for c in string:
+            if c == '\t':
+                self.warn("Tabulation after '#'", position)
+            elif c == ' ':
+                level += 1
+            else:
+                break
+        return level
+
+    def bad_indent_level(self, current, expected, position):
+        self.error("Bad indent level (expected {} space(s), got {})".format(
+            expected, current), position)
+
+    def check(self, tokens, expr):
+        level = 0
+        for token in tokens:
+            if token.kind == 'directive':
+                string = token.string.strip()[1:]
+                name = string.strip()
+                if name.startswith('endif'):
+                    level -= 1
+                directive_level = self.get_indent_level(string, token.begin)
+                if level != directive_level:
+                    self.bad_indent_level(directive_level, level, token.begin)
+                if name.startswith('if'):
+                    level += 1
+
+
 class DeclarationChecker(StyleChecker):
     def __init__(self, issue_handler, options):
         super().__init__(issue_handler)
@@ -2971,6 +3005,7 @@ def main():
         BinaryOpSpaceChecker,
         CommentChecker,
         DeclarationChecker,
+        DirectiveIndentationChecker,
         FunctionLengthChecker,
         FunctionCountChecker,
         HeaderCommentChecker,
