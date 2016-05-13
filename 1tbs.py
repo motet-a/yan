@@ -2710,9 +2710,8 @@ class CommentChecker(StyleChecker):
         super().__init__(issue_handler)
 
     def get_all_tokens_in_expr(self, tokens, expr):
-        expr_tokens = expr.tokens
-        first = expr_tokens[0]
-        last = expr_tokens[-1]
+        first = expr.first_token
+        last = expr.last_token
         all_tokens = tokens[tokens.index(first):tokens.index(last) + 1]
         assert first == all_tokens[0]
         assert last == all_tokens[-1]
@@ -2773,8 +2772,8 @@ class BinaryOpSpaceChecker(MarginChecker):
     def check(self, tokens, expr):
         bin_ops = expr.select('binary_operation')
         for operation in bin_ops:
-            left_token = operation.left.tokens[-1]
-            right_token = operation.right.tokens[0]
+            left_token = operation.left.last_token
+            right_token = operation.right.first_token
             op = operation.operator
             margin = 0 if op.string in '. ->'.split() else 1
             self.check_margin(left_token, margin, op)
@@ -2789,11 +2788,11 @@ class UnaryOpSpaceChecker(MarginChecker):
         unary_ops = expr.select('unary_operation')
         for operation in unary_ops:
             if operation.postfix:
-                left_token = operation.right.tokens[-1]
+                left_token = operation.right.last_token
                 op = operation.operator
                 self.check_margin(left_token, 0, op)
             else:
-                right_token = operation.right.tokens[0]
+                right_token = operation.right.first_token
                 op = operation.operator
                 self.check_margin(op, 0, right_token)
 
@@ -2843,7 +2842,7 @@ class FunctionCountChecker(StyleChecker):
         funcs = expr.select('function_definition')
         if len(funcs) > 5:
             self.error('Too many functions (more than 5)',
-                       expr.tokens[0].begin)
+                       expr.first_token.begin)
 
 
 class DeclarationChecker(StyleChecker):
@@ -2863,18 +2862,19 @@ class DeclarationChecker(StyleChecker):
             self.check_same_line(struct.struct, struct.identifier)
 
     def check_declaration(self, decl):
-        self.check_same_line(decl.declarators.tokens[-1], decl.semicolon)
+        self.check_same_line(decl.declarators.last_token,
+                             decl.semicolon)
 
     def check_function_def(self, func_def):
-        self.check_same_line(func_def.type_expr.tokens[-1],
-                             func_def.declarator.tokens[0])
+        self.check_same_line(func_def.type_expr.last_token,
+                             func_def.declarator.first_token)
 
     def check_new_line_constistency(self, expr):
         children = expr.children;
         prev = None
         for child in children:
             if prev is not None and len(prev.tokens) and len(child.tokens):
-                self.check_same_line(prev.tokens[-1], child.tokens[0])
+                self.check_same_line(prev.last_token, child.first_token)
             prev = child
 
     def check(self, tokens, expr):
