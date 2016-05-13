@@ -972,37 +972,21 @@ class CallExpr(Expr, AbstractParenExpr):
 
 
 class SizeofExpr(Expr):
-    def __init__(self, sizeof, left_paren, expression, right_paren):
+    def __init__(self, sizeof, expression):
         assert sizeof.string == 'sizeof'
-        if left_paren is not None:
-            assert left_paren.string == '('
-            assert right_paren.string == ')'
         Expr.__init__(self, [expression])
         self.sizeof = sizeof
-        self.left_paren = left_paren
         self.expression = expression
-        self.right_paren = right_paren
 
     @property
     def tokens(self):
-        tokens = [self.sizeof]
-        if self.left_paren is not None:
-            tokens.append(self.left_paren)
-        tokens += self.expression.tokens
-        if self.right_paren is not None:
-            tokens.append(self.right_paren)
-        return tokens
+        return [self.sizeof] + self.expression.tokens
 
     def __str__(self):
         s = 'sizeof'
-        if self.left_paren is not None:
-            s += '('
-        else:
-            if not isinstance(self.expression, ParenExpr):
-                s += ' '
+        if not isinstance(self.expression, ParenExpr):
+            s += ' '
         s += str(self.expression)
-        if self.right_paren is not None:
-            s += ')'
         return s
 
 
@@ -1907,14 +1891,14 @@ class Parser(TokenReader):
             return None
         expr = self.parse_unary_expression()
         if expr is not None:
-            return SizeofExpr(sizeof, None, expr, None)
-        left_paren = self.parse_sign('(')
-        if left_paren is not None:
-            type_name = self.parse_type_name()
-            if type_name is None:
-                self.raise_syntax_error('Expected type name')
-            right_paren = self.expect_sign(')')
-            return SizeofExpr(sizeof, left_paren, type_name, right_paren)
+            return SizeofExpr(sizeof, expr)
+        left_paren = self.expect_sign('(')
+        type_name = self.parse_type_name()
+        if type_name is None:
+            self.raise_syntax_error('Expected type name')
+        right_paren = self.expect_sign(')')
+        return SizeofExpr(sizeof,
+                          ParenExpr(left_paren, type_name, right_paren))
 
     def parse_unary_expression(self):
         sizeof = self.parse_sizeof()
