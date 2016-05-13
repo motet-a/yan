@@ -495,9 +495,9 @@ class Expr:
         return d
 
     def select_classes(self, cls):
-        if isinstance(self, cls):
-            return [self]
         l = []
+        if isinstance(self, cls):
+            l.append(self)
         for child in self.children:
             l += child.select_classes(cls)
         return frozenset(l)
@@ -1148,7 +1148,10 @@ class UnaryOperationExpr(Expr):
 
     @property
     def tokens(self):
-        return [self.operator] + self.right.tokens
+        if self.postfix:
+            return self.right.tokens + [self.operator]
+        else:
+            return [self.operator] + self.right.tokens
 
     def __str__(self):
         if self.postfix:
@@ -2312,7 +2315,7 @@ def parse(v):
     parser = Parser(tokens)
     tree = parser.parse()
     tokens = [t for t in tokens if t.kind not in 'comment directive'.split()]
-    if len(tokens) != len(tree.tokens):
+    if tokens != tree.tokens:
         if isinstance(v, str):
             print(v)
         print(tree)
@@ -2320,7 +2323,7 @@ def parse(v):
         print('\n'.join(repr(t) for t in tokens))
         print()
         print('\n'.join(repr(t) for t in tree.tokens))
-    assert len(tokens) == len(tree.tokens)
+    assert tokens == tree.tokens
     return tree
 
 
@@ -2604,12 +2607,15 @@ class StyleChecker:
 
 
 class HeaderCommentChecker(StyleChecker):
-    def __init__(self, issue_handler):
+    def __init__(self, issue_handler, options):
+        self.username_check_enabled = options.header_username
         super().__init__(issue_handler)
 
-    def check_login(self, login, position):
+    def check_username(self, login, position):
+        if not self.username_check_enabled:
+            return
         if not re.match(r'\w+_\w', login):
-            self.warn("Not a valid EPITECH login (was {!r})".format(login),
+            self.warn("Not a valid EPITECH username (was {!r})".format(login),
                       position)
 
     def check_line(self, i, line, position):
@@ -2624,17 +2630,17 @@ class HeaderCommentChecker(StyleChecker):
 
         if i == 3:
             login = line.split()[-1]
-            self.check_login(login, position)
+            self.check_username(login, position)
             if not line.startswith("** Made by"):
                 self.error("Invalid 'Made by' line", position)
         if i == 6:
             login = line.split()[-1]
-            self.check_login(login, position)
+            self.check_username(login, position)
             if not line.startswith("** Started on"):
                 self.error("Invalid 'Started on' line", position)
         if i == 7:
             login = line.split()[-1]
-            self.check_login(login, position)
+            self.check_username(login, position)
             if not line.startswith("** Last update"):
                 self.error("Invalid 'Last update' line", position)
 
@@ -2654,11 +2660,89 @@ class HeaderCommentChecker(StyleChecker):
 
 
 class CommentChecker(StyleChecker):
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler)
+
+    def get_all_tokens_in_expr(self, tokens, expr):
+        expr_tokens = expr.tokens
+        first = expr_tokens[0]
+        last = expr_tokens[-1]
+        all_tokens = tokens[tokens.index(first):tokens.index(last) + 1]
+        assert first == all_tokens[0]
+        assert last == all_tokens[-1]
+        return all_tokens
+
+    def check(self, tokens, expr):
+        funcs = expr.select('function_definition')
+        for func in funcs:
+            func_tokens = self.get_all_tokens_in_expr(tokens, func)
+            for token in func_tokens:
+                if token.kind == 'comment':
+                    self.error('Comment inside a function', token.begin)
+
+
+class MarginChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
+    def check_margin(self, left_token, margin, right_token):
+        left_end = left_token.end
+        right_begin = right_token.begin
+        if left_end.line != right_begin.line:
+            return
+        if left_end.column + margin + 1 != right_begin.column:
+            m = 'Expected {} space(s) between {!r} and {!r}'.format(
+                margin, left_token.string, right_token.string)
+            self.error(m, left_end)
+
+
+class BinaryOpSpaceChecker(MarginChecker):
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler)
+
     def check(self, tokens, expr):
-        pass
+        bin_ops = expr.select('binary_operation')
+        for operation in bin_ops:
+            left_token = operation.left.tokens[-1]
+            right_token = operation.right.tokens[0]
+            op = operation.operator
+            margin = 0 if op.string in '. ->'.split() else 1
+            self.check_margin(left_token, margin, op)
+            self.check_margin(op, margin, right_token)
+
+
+class UnaryOpSpaceChecker(MarginChecker):
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler)
+
+    def check(self, tokens, expr):
+        unary_ops = expr.select('unary_operation')
+        for operation in unary_ops:
+            if operation.postfix:
+                left_token = operation.right.tokens[-1]
+                op = operation.operator
+                self.check_margin(left_token, 0, op)
+            else:
+                right_token = operation.right.tokens[0]
+                op = operation.operator
+                self.check_margin(op, 0, right_token)
+
+
+class ReturnChecker(StyleChecker):
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler)
+
+    def check_return(self, return_expr):
+        if not isinstance(return_expr.expression, ParenExpr):
+            self.error("No paretheses after 'return'",
+                       return_expr.keyword.end)
+
+    def check(self, tokens, expr):
+        returns = expr.select('jump')
+        for return_expr in returns:
+            if (return_expr.keyword.string == 'return' and
+                return_expr.expression is not None):
+                self.check_return(return_expr)
 
 
 def get_argument_parser():
@@ -2669,6 +2753,8 @@ def get_argument_parser():
                         help='source files to check')
     parser.add_argument('--test', action='store_true',
                         help='run the old tests')
+    parser.add_argument('--header-username', action='store_true',
+                        help="check the username in header comments")
     return parser
 
 
@@ -2730,8 +2816,11 @@ def main():
     checkers_classes = [
         CommentChecker,
         HeaderCommentChecker,
+        BinaryOpSpaceChecker,
+        UnaryOpSpaceChecker,
+        ReturnChecker,
     ]
-    checkers = [c(print_issue) for c in checkers_classes]
+    checkers = [c(print_issue, args) for c in checkers_classes]
 
     for source_file in args.source_files:
         check_file(source_file, checkers)
