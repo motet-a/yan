@@ -719,8 +719,7 @@ class FunctionExpr(Expr):
     def __init__(self, declarator, parameters):
         assert isinstance(declarator, Expr)
         assert isinstance(parameters, ParenExpr)
-        for t in parameters.tokens:
-            assert isinstance(t, Token)
+
         Expr.__init__(self, [declarator, parameters])
         self.declarator = declarator
         self.parameters = parameters
@@ -858,7 +857,7 @@ class CastExpr(Expr):
 
 
 class DeclarationExpr(Expr):
-    def __init__(self, type_expr, declarators, semicolon_token):
+    def __init__(self, type_expr, declarators, semicolon):
         """
         declarators: A CommaListExpr
         """
@@ -868,7 +867,7 @@ class DeclarationExpr(Expr):
         super().__init__([type_expr, declarators])
         self._type_expr = type_expr
         self._declarators = declarators
-        self._semicolon_token = semicolon_token
+        self._semicolon = semicolon
 
     @property
     def type_expr(self):
@@ -879,14 +878,14 @@ class DeclarationExpr(Expr):
         return self._declarators
 
     @property
-    def semicolon_token(self):
-        return self._semicolon_token
+    def semicolon(self):
+        return self._semicolon
 
     @property
     def tokens(self):
         tokens = self.type_expr.tokens
         tokens += self.declarators.tokens
-        tokens.append(self.semicolon_token)
+        tokens.append(self.semicolon)
         return tokens
 
     def __str__(self):
@@ -1154,8 +1153,8 @@ class TranslationUnitExpr(Expr):
         return '\n'.join(str(c) for c in self.children)
 
 
-class JumpStatementExpr(Expr):
-    def __init__(self, keyword, expression, semicolon):
+class JumpExpr(Expr):
+    def __init__(self, keyword, expression):
         """
         expression: The expression after a `return` or a `goto`,
         None otherwise.
@@ -1165,27 +1164,23 @@ class JumpStatementExpr(Expr):
         assert keyword.string in 'goto continue break return'.split()
         if keyword.string not in 'goto return':
             assert expression is None
-        assert isinstance(semicolon, Token)
-        assert semicolon.string == ';'
 
         Expr.__init__(self, [] if expression is None else [expression])
         self.keyword = keyword
         self.expression = expression
-        self.semicolon = semicolon
 
     @property
     def tokens(self):
         t = [self.keyword]
         if self.expression is not None:
             t += self.expression.tokens
-        t.append(self.semicolon)
         return t
 
     def __str__(self):
         s = self.keyword.string
         if self.expression is not None:
             s += ' ' + str(self.expression)
-        return s + ';'
+        return s
 
 
 class ParenExpr(Expr, AbstractParenExpr):
@@ -2109,7 +2104,7 @@ class Parser(TokenReader):
             if expr is None:
                 self.raise_syntax_error('Expected expression')
             semicolon = self.expect_sign(';')
-        return JumpStatementExpr(return_token, expr, semicolon)
+        return StatementExpr(JumpExpr(return_token, expr), semicolon)
 
     def parse_jump_statement(self):
         r = self.parse_return_statement()
@@ -2119,7 +2114,7 @@ class Parser(TokenReader):
         if token is None:
             return None
         semicolon = self.expect_sign(';')
-        return JumpStatementExpr(token, None, semicolon)
+        return StatementExpr(JumpExpr(token, None), semicolon)
 
     def parse_statement(self):
         s = self.parse_compound_statement()
