@@ -837,25 +837,24 @@ class TypeNameExpr(Expr):
         return s
 
 
-class CastExpr(Expr, AbstractParenExpr):
-    def __init__(self, left_paren, type_name, right_paren, expression):
-        AbstractParenExpr.__init__(self, left_paren, right_paren)
-        Expr.__init__(self, [type_name, expression])
-        self.type_name = type_name
-        self.expression = expression
+class CastExpr(Expr):
+    def __init__(self, paren_type, right):
+        assert isinstance(paren_type, ParenExpr)
+
+        Expr.__init__(self, [paren_type, right])
+        self._paren_type = paren_type
+        self._right = right
 
     @property
-    def tokens(self):
-        tokens = [self.left_paren]
-        tokens += self.type_name.tokens
-        tokens += [self.right_paren]
-        tokens += self.expression.tokens
-        return tokens
+    def paren_type(self):
+        return self._paren_type
+
+    @property
+    def right(self):
+        return self._right
 
     def __str__(self):
-        s = '(' + str(self.type_name) + ') '
-        s += str(self.expression)
-        return s
+        return str(self.paren_type) + ' ' + str(self.right)
 
 
 class DeclarationExpr(Expr):
@@ -993,7 +992,10 @@ class SizeofExpr(Expr):
 class SubscriptExpr(Expr, AbstractBracketExpr):
     def __init__(self, expression, left_bracket, index, right_bracket):
         AbstractBracketExpr.__init__(self, left_bracket, right_bracket)
-        Expr.__init__(self, [expression, index])
+        children = [expression]
+        if index is not None:
+            children.append(index)
+        Expr.__init__(self, children)
         self.expression = expression
         self.index = index
 
@@ -1001,11 +1003,14 @@ class SubscriptExpr(Expr, AbstractBracketExpr):
     def tokens(self):
         return (self.expression.tokens +
                 [self.left_bracket] +
-                self.index.tokens +
+                (self.index.tokens if self.index is not None else []) +
                 [self.right_bracket])
 
     def __str__(self):
-        return str(self.expression) + '[' + str(self.index) + ']'
+        s = str(self.expression) + '['
+        if self.index is not None:
+            s += str(self.index)
+        return s + ']'
 
 
 class PointerExpr(Expr):
@@ -1087,10 +1092,9 @@ class LiteralExpr(Expr):
             self.kind, self.string)
 
 
-class WhileExpr(Expr, AbstractParenExpr):
-    def __init__(self, while_token, left_paren, expression, right_paren,
-                 statement):
-        AbstractParenExpr.__init__(self, left_paren, right_paren)
+class WhileExpr(Expr):
+    def __init__(self, while_token, expression, statement):
+        assert isinstance(expression, ParenExpr)
         Expr.__init__(self, [expression, statement])
         self.while_token = while_token
         self.expression = expression
@@ -1098,22 +1102,20 @@ class WhileExpr(Expr, AbstractParenExpr):
 
     @property
     def tokens(self):
-        tokens = [self.while_token, self.left_paren]
+        tokens = [self.while_token]
         tokens += self.expression.tokens
-        tokens += [self.right_paren]
         tokens += self.statement.tokens
         return tokens
 
     def __str__(self):
-        s = 'while (' + str(self.expression) + ')\n'
+        s = 'while ' + str(self.expression) + '\n'
         s += str(self.statement)
         return s
 
 
-class IfExpr(Expr, AbstractParenExpr):
-    def __init__(self, if_token, left_paren, expression, right_paren,
-                 statement, else_token, else_statement):
-        AbstractParenExpr.__init__(self, left_paren, right_paren)
+class IfExpr(Expr):
+    def __init__(self, if_token, expression, statement,
+                 else_token, else_statement):
         assert if_token.string == 'if'
         children = [expression, statement]
         if else_statement is not None:
@@ -1127,9 +1129,8 @@ class IfExpr(Expr, AbstractParenExpr):
 
     @property
     def tokens(self):
-        tokens = [self.if_token, self.left_paren]
+        tokens = [self.if_token]
         tokens += self.expression.tokens
-        tokens += [self.right_paren]
         tokens += self.statement.tokens
         if self.else_token is not None:
             tokens.append(self.else_token)
@@ -1137,7 +1138,7 @@ class IfExpr(Expr, AbstractParenExpr):
         return tokens
 
     def __str__(self):
-        s = 'if (' + str(self.expression) + ')\n'
+        s = 'if ' + str(self.expression) + '\n'
         s += str(self.statement)
         if self.else_token is not None:
             s += '\nelse\n'
@@ -1549,8 +1550,11 @@ class Parser(TokenReader):
             if not self.has_more:
                 raise_syntax_error("Expected ']'")
             constant = self.parse_constant_expression()
-            if constant is not None:
+            if constant is None:
+                right_bracket = self.parse_sign(']')
+            else:
                 right_bracket = self.expect_sign(']')
+            if right_bracket is not None:
                 return SubscriptExpr(left,
                                      left_bracket, constant, right_bracket)
             self.index = begin
@@ -1944,7 +1948,8 @@ class Parser(TokenReader):
         expr = self.parse_cast_expression()
         if expr is None:
             return self.raise_syntax_error('Expected expression')
-        return CastExpr(left_paren, type_name, right_paren, expr)
+        parens = ParenExpr(left_paren, type_name, right_paren)
+        return CastExpr(parens, expr)
 
     def parse_multiplicative_expression(self):
         return self.parse_binary_operation('* / %',
@@ -2069,7 +2074,8 @@ class Parser(TokenReader):
             else_statement = self.parse_statement()
             if else_statement is None:
                 self.raise_syntax_error("Expected statement after 'else'")
-        return IfExpr(if_token, left_paren, expr, right_paren, statement,
+        return IfExpr(if_token,
+                      ParenExpr(left_paren, expr, right_paren), statement,
                       else_token, else_statement)
 
     def parse_iteration_statement(self):
@@ -2088,7 +2094,9 @@ class Parser(TokenReader):
         statement = self.parse_statement()
         if statement is None:
             self.raise_syntax_error('Expected statement')
-        return WhileExpr(while_token, left_paren, expr, right_paren, statement)
+        return WhileExpr(while_token,
+                         ParenExpr(left_paren, expr, right_paren),
+                         statement)
 
     def parse_return_statement(self):
         return_token = self.parse_keyword(['return'])
@@ -2245,6 +2253,10 @@ class TestParser(unittest.TestCase):
         self.checkExpr('sizeof(123)')
         self.checkExpr('sizeof 123')
 
+    def test_cast(self):
+        self.checkExpr('(int) 54.9')
+        self.checkExpr('(char **) 17')
+
     def test_call(self):
         self.checkExpr('a()()()')
 
@@ -2280,6 +2292,7 @@ class TestParser(unittest.TestCase):
     def test_array(self):
         self.checkDecl('int b[4];')
         self.checkDecl('int b[1][2];', 'int b[1][2];')
+        self.checkDecl('void f(int b[]);')
 
     def test_decl(self):
         self.checkDecl('long unsigned register int b, c;')
