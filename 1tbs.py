@@ -675,15 +675,15 @@ class StructExpr(AbstractTypeSpecifierExpr):
     Represents a struct or an union
     """
 
-    def __init__(self, struct_token, identifier, compound):
+    def __init__(self, struct, identifier, compound):
         """
-        struct_token: The keyword `struct` or `union`
+        struct: The keyword `struct` or `union`
         identifier: The name of the struct or None
         compound: The "body" of the struct or None
         """
-        assert isinstance(struct_token, Token)
-        assert (struct_token.string == 'struct' or
-                struct_token.string == 'union')
+        assert isinstance(struct, Token)
+        assert (struct.string == 'struct' or
+                struct.string == 'union')
 
         if identifier is not None:
             assert isinstance(identifier, Token)
@@ -695,7 +695,7 @@ class StructExpr(AbstractTypeSpecifierExpr):
 
         Expr.__init__(self, [] if compound is None else [compound])
 
-        self._struct_token = struct_token
+        self._struct = struct
         self._identifier = identifier
         self._compound = compound
 
@@ -704,11 +704,11 @@ class StructExpr(AbstractTypeSpecifierExpr):
         """
         Returns 'struct' or 'union'
         """
-        return self.struct_token.string
+        return self.struct.string
 
     @property
-    def struct_token(self):
-        return self._struct_token
+    def struct(self):
+        return self._struct
 
     @property
     def identifier(self):
@@ -720,7 +720,7 @@ class StructExpr(AbstractTypeSpecifierExpr):
 
     @property
     def tokens(self):
-        t = [self.struct_token]
+        t = [self.struct]
         if self.identifier is not None:
             t.append(self.identifier)
         if self.compound is not None:
@@ -2618,20 +2618,47 @@ class SourceChecker(StyleChecker):
         raise Exception('Not implemented')
 
 
-class LineLengthChecker(SourceChecker):
+class LineChecker(SourceChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+
+    def check_line(self, begin, line, end):
+        raise Exception()
+
+    def check(self, source, tokens, expr):
+        lines = source.splitlines(True)
+        index = 0
+        file_name = tokens[0].begin.file_name
+        for line_index, line_and_endl in enumerate(lines):
+            line = line_and_endl.rstrip('\n\r')
+            begin = Position(file_name,
+                             index,
+                             line_index + 1)
+            end_col_index = max(0, len(line) - 1)
+            end = Position(file_name,
+                           index + end_col_index,
+                           line_index + 1,
+                           end_col_index)
+            self.check_line(begin, line, end)
+            index += len(line_and_endl)
+
+
+class LineLengthChecker(LineChecker):
     def __init__(self, issue_handler, options):
         super().__init__(issue_handler)
 
-    def check(self, source, tokens, expr):
-        lines = source.splitlines()
-        index = 0
-        for line_index, line in enumerate(lines):
-            if len(line) > 80:
-                pos = Position(tokens[0].begin.file_name,
-                               index,
-                               line_index + 1)
-                self.warn("Line too long (more than 80 characters)", pos)
-            index += len(line)
+    def check_line(self, begin, line, end):
+        if len(line) > 80:
+            self.error("Line too long (more than 80 characters)", end)
+
+
+class TrailingWhitespaceChecker(LineChecker):
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler)
+
+    def check_line(self, begin, line, end):
+        if line.rstrip() != line:
+            self.warn("Trailing whitespaces at the end of the line", end)
 
 
 class HeaderCommentChecker(StyleChecker):
@@ -2805,7 +2832,7 @@ class FunctionLengthChecker(StyleChecker):
                 return
             elif line_count > 24:
                 self.warn('Long function ({} lines)'.format(line_count),
-                           func.compound.left_brace.begin)
+                          func.compound.left_brace.begin)
 
 
 class FunctionCountChecker(StyleChecker):
@@ -2817,6 +2844,56 @@ class FunctionCountChecker(StyleChecker):
         if len(funcs) > 5:
             self.error('Too many functions (more than 5)',
                        expr.tokens[0].begin)
+
+
+class DeclarationChecker(StyleChecker):
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler)
+
+    def check_same_line(self, left, right):
+        assert isinstance(left, Token)
+        assert isinstance(right, Token)
+        if left.end.line != right.end.line:
+            msg = "{!r} is not on the same line than {!r}".format(
+                left.string, right.string)
+            self.error(msg, left.begin)
+
+    def check_struct(self, struct):
+        if struct.identifier is not None:
+            self.check_same_line(struct.struct, struct.identifier)
+
+    def check_declaration(self, decl):
+        self.check_same_line(decl.declarators.tokens[-1], decl.semicolon)
+
+    def check_function_def(self, func_def):
+        self.check_same_line(func_def.type_expr.tokens[-1],
+                             func_def.declarator.tokens[0])
+
+    def check_new_line_constistency(self, expr):
+        children = expr.children;
+        prev = None
+        for child in children:
+            if prev is not None and len(prev.tokens) and len(child.tokens):
+                self.check_same_line(prev.tokens[-1], child.tokens[0])
+            prev = child
+
+    def check(self, tokens, expr):
+        structs = expr.select('struct')
+        for struct in structs:
+            self.check_struct(struct)
+        decls = expr.select('declaration')
+        for decl in decls:
+            self.check_declaration(decl)
+            self.check_new_line_constistency(decl)
+        types = expr.select('type')
+        for t in types:
+            self.check_new_line_constistency(t)
+        funcs = expr.select('function_definition')
+        for func in funcs:
+            self.check_function_def(func)
+        decls = expr.select('function')
+        for decl in decls:
+            self.check_new_line_constistency(decl)
 
 
 def get_argument_parser():
@@ -2893,11 +2970,13 @@ def main():
     checkers_classes = [
         BinaryOpSpaceChecker,
         CommentChecker,
+        DeclarationChecker,
         FunctionLengthChecker,
         FunctionCountChecker,
         HeaderCommentChecker,
         LineLengthChecker,
         ReturnChecker,
+        TrailingWhitespaceChecker,
         UnaryOpSpaceChecker,
     ]
     checkers = [c(print_issue, args) for c in checkers_classes]
