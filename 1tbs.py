@@ -443,10 +443,86 @@ class TestLexer(unittest.TestCase):
 
 
 class Expr:
+    """
+    Represents a node of the syntax tree.
+
+    An Expr is immutable.
+    """
+
     def __init__(self, children):
         self._children = children
         for child in children:
             assert isinstance(child, Expr)
+
+    @staticmethod
+    def _split_camel_case(string):
+        def find_uppercase_letter(string):
+            for i, c in enumerate(string):
+                if c.isupper():
+                    return i
+            return -1
+
+        first = string[0].lower()
+        string = first + string[1:]
+        upper_index = find_uppercase_letter(string)
+        if upper_index == -1:
+            return [string]
+        left = string[:upper_index]
+        return [left] + Expr._split_camel_case(string[upper_index:])
+
+    @staticmethod
+    def _get_class_short_name(name):
+        name = name[:-len('Expr')]
+        l = Expr._split_camel_case(name)
+        return '_'.join(l)
+
+    @staticmethod
+    def _get_expr_classes():
+        import inspect
+        classes = inspect.getmembers(sys.modules[__name__], inspect.isclass)
+        d = {}
+        for name, cls in classes:
+            if name.endswith('Expr') and name != 'Expr':
+                short_name = Expr._get_class_short_name(name)
+                d[short_name] = cls
+        d['expr'] = Expr
+        return d
+
+    def select_classes(self, cls):
+        if isinstance(self, cls):
+            return [self]
+        l = []
+        for child in self.children:
+            l += child.select_classes(cls)
+        return frozenset(l)
+
+    @staticmethod
+    def select_all(expressions, selectors_string):
+        l = []
+        for e in expressions:
+            l += e.select(selectors_string)
+        return frozenset(l)
+
+    def select(self, selectors_string):
+        """
+        Selects child nodes from a "selectors" string, a bit like
+        CSS selection.
+
+        Returns a set.
+        """
+        selectors = selectors_string.split()
+        if len(selectors) == 0:
+            raise ValueError('No selector in the given string')
+        selector = selectors[0]
+        expr_classes = Expr._get_expr_classes()
+        selected = []
+        if selector in expr_classes:
+            selected = self.select_classes(expr_classes[selector])
+        else:
+            raise ValueError('Invalid selector: {!r}'.format(selector))
+        if len(selectors) > 1:
+            return Expr.select_all(selected, ' '.join(selectors[1:]))
+        return selected
 
     @property
     def children(self):
@@ -487,7 +563,19 @@ class Expr:
 
 
 class CommaListExpr(Expr):
+    """
+    Reprensents a list of expressions separated by commas
+    """
+
     def __init__(self, comma_separated_children):
+        """
+        comma_separated_children is a list of expressions
+        separated by commas tokens.
+        No trailing comma.
+        """
+
+        if len(comma_separated_children) > 0:
+            assert len(comma_separated_children) % 2 == 1
 
         children = [d for d in comma_separated_children
                     if isinstance(d, Expr)]
@@ -645,8 +733,6 @@ class StructExpr(AbstractTypeSpecifierExpr):
 class TypeExpr(Expr):
     def __init__(self, children):
         assert len(children) > 0
-        for child in children:
-            assert isinstance(child, AbstractTypeSpecifierExpr)
         Expr.__init__(self, children)
 
     @property
@@ -2437,6 +2523,28 @@ class TestParser(unittest.TestCase):
                             'b;\n'
                             'c;\n'
                             '}')
+
+    def test_selection(self):
+        e = parse_expr('1 + 1')
+        plus = e.select('binary_operation')
+        assert len(plus) == 1
+        assert type(plus[0]) is BinaryOperationExpr
+
+        one = e.select('literal')
+        assert len(one) == 2
+        for c in one:
+            assert type(c) is LiteralExpr
+
+        one = e.select('binary_operation literal')
+        assert len(one) == 2
+        for c in one:
+            assert type(c) is LiteralExpr
+
+        with self.assertRaises(ValueError):
+            parse_expr('123').select('')
+
+        with self.assertRaises(ValueError):
+            parse_expr('123').select('eiaueiuaeiua')
 
 
 def get_argument_parser():
