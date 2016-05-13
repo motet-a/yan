@@ -2619,15 +2619,6 @@ class HeaderCommentChecker(StyleChecker):
                       position)
 
     def check_line(self, i, line, position):
-        if i == 0:
-            if line != '/*':
-                self.error("The header must start with '/*'", position)
-        elif i == 8:
-            if line != '*/':
-                self.error("The header must end with '*/'", position)
-        elif line[:3].strip() != '**':
-            self.error("The header lines should start with '**'", position)
-
         if i == 3:
             login = line.split()[-1]
             self.check_username(login, position)
@@ -2672,7 +2663,31 @@ class CommentChecker(StyleChecker):
         assert last == all_tokens[-1]
         return all_tokens
 
+    def check_comment(self, comment):
+        if comment.begin.column != 1:
+            self.error("A comment must begin at the first column",
+                       comment.begin)
+
+        lines = comment.string.splitlines()
+        if len(lines) < 3:
+            self.error("A comment must be at least 3 lines long",
+                       comment.begin)
+            return
+
+        if lines[0] != '/*':
+            self.error("A comment must start with '/*'", comment.begin)
+        if lines[-1] != '*/':
+            self.error("A comment must end with '*/'", comment.begin)
+        for line in lines[1:-1]:
+            if line[:3].strip() != '**':
+                self.error("The comment lines should start with '**'",
+                           comment.begin)
+
     def check(self, tokens, expr):
+        for t in tokens:
+            if t.kind == 'comment':
+                self.check_comment(t)
+
         funcs = expr.select('function_definition')
         for func in funcs:
             func_tokens = self.get_all_tokens_in_expr(tokens, func)
