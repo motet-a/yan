@@ -19,7 +19,7 @@ Currently:
 
 **The spaces before and after operators**
 
-```sh
+```c
 antoine@hp-blinux:~/cs/1tbs$ cat test.c
 /*
 ** test.c for  in /home/antoine
@@ -185,7 +185,7 @@ A lot of work.
 
 The parser can already process complex declarations like these ones:
 
-```
+```c
 int *const *b;
 int (*getFunc())(int, int (*)(long));
 ```
