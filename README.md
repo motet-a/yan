@@ -17,7 +17,7 @@ directives (except `#include`).
 
 Currently:
 
-### The spaces before and after operators
+**The spaces before and after operators**
 
 ```sh
 antoine@hp-blinux:~/cs/1tbs$ cat test.c
@@ -39,7 +39,7 @@ antoine@hp-blinux:~/cs/1tbs$ ./1tbs.py test.c
 test.c:13:13: Expected 1 space(s) between '+' and '4'
 ```
 
-### In a declaration, if the type is on the same line than the declarator
+**In a declaration, if the type is on the same line than the declarator**
 
 ```sh
 antoine@hp-blinux:~/cs/1tbs$ cat test.c
@@ -62,7 +62,7 @@ antoine@hp-blinux:~/cs/1tbs$ ./1tbs.py test.c
 test.c:13:3: 'int' is not on the same line than 'a'
 ```
 
-### The comments
+**The comments**
 
 ```sh
 antoine@hp-blinux:~/cs/1tbs$ cat test.c
@@ -138,15 +138,15 @@ test.c:1:1: Not a valid EPITECH username (was 'antoine')
 test.c:1:1: Not a valid EPITECH username (was 'antoine')
 ```
 
-### The indentation of the preprocessor directives
+**The indentation of the preprocessor directives**
 
-### The function definitions length
+**The function definitions length**
 
-### The function definitions count in a file
+**The function definitions count in a file**
 
-### The lines length
+**The lines length**
 
-### The parentheses after `return`
+**The parentheses after `return`**
 
 ```sh
 antoine@hp-blinux:~/cs/1tbs$ cat test.c
@@ -171,7 +171,7 @@ antoine@hp-blinux:~/cs/1tbs$
 
 TODO: Check for the space after `return`
 
-### The trailing whitespaces at the end of the lines
+**The trailing whitespaces at the end of the lines**
 
 
 
