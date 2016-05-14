@@ -872,12 +872,20 @@ class FunctionDefinitionExpr(Expr):
         """
         Warning: if the function returns a pointer, `declarator`
         is a PointerExpr.
+        Moreover, type_expr is None if the return type of the
+        function is unspecified.
         """
 
-        assert isinstance(type_expr, TypeExpr)
+        if type_expr is not None:
+            assert isinstance(type_expr, TypeExpr)
         assert isinstance(compound, CompoundExpr)
 
-        Expr.__init__(self, [type_expr, declarator, compound])
+        children = []
+        if type_expr is not None:
+            children.append(type_expr)
+        children += [declarator, compound]
+
+        Expr.__init__(self, children)
         self.type_expr = type_expr
         self.declarator = declarator
         self.compound = compound
@@ -1186,6 +1194,32 @@ class LiteralExpr(Expr):
             self.kind, self.string)
 
 
+class StringsExpr(LiteralExpr):
+    def __init__(self, strings):
+        for s in strings:
+            assert isinstance(s, LiteralExpr)
+            assert s.kind == 'string'
+        LiteralExpr.__init__(self, strings[0])
+        Expr.__init__(self, strings)
+
+    @property
+    def kind(self):
+        return 'string'
+
+    @property
+    def tokens(self):
+        l = []
+        for c in self.children:
+            l += c.tokens
+        return l
+
+    def __str__(self):
+        return ' '.join(str(c) for c in self.children)
+
+    def __repr__(self):
+        return Expr.__repr__(self)
+
+
 class WhileExpr(Expr):
     def __init__(self, while_token, expression, statement):
         assert isinstance(expression, ParenExpr)
@@ -1365,6 +1399,18 @@ class Parser(TokenReader):
         self._types = []
         self._included_headers = []
         self._in_typedef = False
+        self._include_directories = []
+
+    def add_include_directory(self, dir_path):
+        self._include_directories.append(dir_path)
+
+    def add_include_directories(self, dirs_paths):
+        for dir_path in dirs_paths:
+            self.add_include_directory(dir_path)
+
+    @property
+    def include_directories(self):
+        return self._include_directories[:]
 
     @property
     def types(self):
@@ -1408,6 +1454,7 @@ class Parser(TokenReader):
         clock_t
         clockid_t
         dev_t
+        fd_set
         fsblkcnt_t
         fsfilcnt_t
         gid_t
@@ -1447,7 +1494,13 @@ class Parser(TokenReader):
         stddef = 'size_t ptrdiff_t'
         strings = {
             'dirent.h':         'DIR',
+            'errno.h':          '',
+            'fcntl.h':          '',
+            'grp.h':            '',
+            'pwd.h':            '',
             'setjmp.h':         'jmp_buf',
+            'signal.h':         'sighandler_t sigset_t',
+            'stdarg.h':         'va_list',
             'stddef.h':         stddef,
             'stdint.h':         stdint,
             'stdio.h':          stddef + ' FILE',
@@ -1455,53 +1508,93 @@ class Parser(TokenReader):
             'string.h':         stddef,
             'time.h':           stddef + ' clock_t time_t',
             'unistd.h':         stddef + ' ssize_t',
+            'sys/stat.h':       '',
             'sys/types.h':      sys_types,
         }
         return {h: types.split() for h, types in strings.items()}
 
-    def _expand_local_header(self, header_name):
+    @property
+    def file_name(self):
+        return self._tokens[0].begin.file_name
+
+    @property
+    def directory_path(self):
         import os
-        file_name = self._tokens[0].begin.file_name
-        dir_name = os.path.dirname(file_name)
-        header_path = os.path.join(dir_name, header_name)
-        if not os.path.exists(header_path):
-            return self.expand_header(header_name, True)
+        return os.path.dirname(self.file_name)
+
+    def _get_header_path(self, header_name, system):
+        """
+        system: True if the header has been included with `#include <...>`,
+        false if `#include "..."` has been used.
+        """
+
+        import os
+
+        if not system:
+            header_path = os.path.join(self.directory_path, header_name)
+            if os.path.exists(header_path):
+                return header_path
+
+        for dir_path in self.include_directories:
+            if os.path.exists(dir_path):
+                header_path = os.path.join(dir_path, header_name)
+                if os.path.exists(header_path):
+                    return header_path
+        return None
+
+    def _expand_local_header(self, header_path):
+        import os
+
+        if (header_path, False) in self._included_headers:
+            return
+        self._included_headers.append((header_path, False))
+
+        assert os.path.exists(header_path)
         with open(header_path) as h:
             source = h.read()
         tokens = lex(source, file_name=header_path)
         parser = Parser(tokens)
-        parser._types = self._types[:]
+        parser.add_types(self.types)
+        parser.add_include_directories(self.include_directories)
+        parser._included_headers += self._included_headers
         try:
             parser.parse()
         except SyntaxError as e:
             msg = e.message
-            print("In file included from {}:".format(file_name))
+            print("In file included from {}:".format(self.file_name))
             raise e
         self.add_types(parser._types)
 
-    def expand_header(self, header_name, system):
-        if (header_name, system) in self._included_headers:
-            return
-        self._included_headers.append((header_name, system))
+    def _expand_system_header(self, header_name):
         headers_types = self.get_system_headers_types()
         if header_name in headers_types:
+
+            if (header_name, True) in self._included_headers:
+                return
+            self._included_headers.append((header_name, True))
+
             self.add_types(headers_types[header_name])
-        else:
-            self._expand_local_header(header_name)
+            return
+        print('Warning: Header not found: {!r}'.format(header_name))
 
     def process_include(self, directive_string):
+        import os
+
         s = directive_string
         assert s.startswith('include')
         s = s[len('include'):].strip()
         if s.startswith('<') and s.endswith('>'):
             system = True
-            name = s[1:-1]
         elif s.startswith('"') and s.endswith('"'):
             system = False
-            name = s[1:-1]
         else:
             self.raise_syntax_error('Invalid #include directive')
-        self.expand_header(name, system)
+        name = s[1:-1]
+        header_path = self._get_header_path(name, system)
+        if header_path is None:
+            self._expand_system_header(name)
+        else:
+            self._expand_local_header(header_path)
 
     def has_more_impl(self, index=-1):
         if index == -1:
@@ -1613,7 +1706,10 @@ class Parser(TokenReader):
             param = self.parse_parameter_declaration()
             if param is None:
                 if len(params_commas) > 0:
-                    self.raise_syntax_error("Expected parameter after ','")
+                    param = self.parse_sign('...')
+                    if param is None:
+                        self.raise_syntax_error("Expected parameter after ','")
+                    params_commas.append(param)
                 break
             params_commas.append(param)
         right_paren = self.expect_sign(')')
@@ -1704,12 +1800,23 @@ class Parser(TokenReader):
             return None
         return PointerExpr(star, right, type_qualifiers)
 
+    def parse_strings(self):
+        strings = []
+        while self.has_more:
+            token = self.parse_token('string')
+            if token is None:
+                break
+            strings.append(LiteralExpr(token))
+        if len(strings) == 0:
+            return None
+        return StringsExpr(strings)
+
     def parse_primary_token(self):
         if not self.has_more:
             return None
         begin = self.index
         token = self.next()
-        if token.kind in 'integer float string character'.split():
+        if token.kind in 'integer float character'.split():
             return token
         self.index = begin
         return self.parse_identifier_token()
@@ -1726,6 +1833,10 @@ class Parser(TokenReader):
         return ParenExpr(left_paren, expr, self.expect_sign(')'))
 
     def parse_primary_expression(self):
+        strings = self.parse_strings()
+        if strings:
+            return strings
+
         token = self.parse_primary_token()
         if token is not None:
             return LiteralExpr(token)
@@ -1904,7 +2015,7 @@ class Parser(TokenReader):
 
     def parse_type_name(self):
         specifiers = self.parse_specifier_qualifier_list()
-        if len(specifiers) == 0:
+        if specifiers is None:
             return None
         return TypeNameExpr(specifiers, self.parse_declarator(abstract=True))
 
@@ -1959,9 +2070,11 @@ class Parser(TokenReader):
                 args_commas.append(comma)
             argument = self.parse_assignment_expression()
             if argument is None:
-                if len(args_commas) == 0:
-                    break
-                self.raise_syntax_erorr('Expected argument')
+                argument = self.parse_type_name()
+                if argument is None:
+                    if len(args_commas) == 0:
+                        break
+                    self.raise_syntax_error('Expected argument')
             args_commas.append(argument)
         return CommaListExpr(args_commas)
 
@@ -2307,12 +2420,17 @@ def argument_to_tokens(v):
     return v
 
 
-def parse(v):
+def parse(v, include_directories=None):
     """
     v: a string or a list of tokens
     """
+
+    if include_directories is None:
+        include_directories = []
+
     tokens = argument_to_tokens(v)
     parser = Parser(tokens)
+    parser.add_include_directories(include_directories)
     tree = parser.parse()
     tokens = [t for t in tokens if t.kind not in 'comment directive'.split()]
     if tokens != tree.tokens:
@@ -2356,6 +2474,9 @@ class TestParser(unittest.TestCase):
 
     def checkStatement(self, source, expected_result=None):
         self.checkDecl(source, expected_result, parse_statement)
+
+    def test_string_concatenation(self):
+        self.checkExpr('"hello" "world" "!"')
 
     def test_sizeof(self):
         self.checkExpr('sizeof(int)')
@@ -2411,6 +2532,7 @@ class TestParser(unittest.TestCase):
     def test_function_decl(self):
         self.checkDecl('void f(long a);')
         self.checkDecl('void f(long);')
+        self.checkDecl('void (*a)(char *, int, long *);')
 
     def test_function_def(self):
         self.checkDecl('void f(long a) {}',
@@ -2534,6 +2656,14 @@ class TestParser(unittest.TestCase):
                        '} t_dir;\n\n'
                        't_dir d;')
 
+        self.checkDecl('typedef char c;\n'
+                       '\n'
+                       'typedef struct s_dir\n'
+                       '{\n'
+                       'void (*a)(c);\n'
+                       '} t_dir;\n\n'
+                       't_dir d;')
+
     def test_if(self):
         self.checkStatement('if (a)\n'
                             'b;')
@@ -2558,7 +2688,7 @@ class TestParser(unittest.TestCase):
         e = parse_expr('1 + 1')
         plus = e.select('binary_operation')
         assert len(plus) == 1
-        assert type(plus[0]) is BinaryOperationExpr
+        assert type(list(plus)[0]) is BinaryOperationExpr
 
         one = e.select('literal')
         assert len(one) == 2
@@ -2873,6 +3003,8 @@ class DirectiveIndentationChecker(StyleChecker):
                 if name.startswith('endif'):
                     level -= 1
                 directive_level = self.get_indent_level(string, token.begin)
+                if name.startswith('else') or name.startswith('elif'):
+                    directive_level += 1
                 if level != directive_level:
                     self.bad_indent_level(directive_level, level, token.begin)
                 if name.startswith('if'):
@@ -2896,12 +3028,14 @@ class DeclarationChecker(StyleChecker):
             self.check_same_line(struct.struct, struct.identifier)
 
     def check_declaration(self, decl):
-        self.check_same_line(decl.declarators.last_token,
-                             decl.semicolon)
+        if len(decl.declarators.children) > 0:
+            self.check_same_line(decl.declarators.last_token,
+                                 decl.semicolon)
 
     def check_function_def(self, func_def):
-        self.check_same_line(func_def.type_expr.last_token,
-                             func_def.declarator.first_token)
+        if func_def.type_expr is not None:
+            self.check_same_line(func_def.type_expr.last_token,
+                                 func_def.declarator.first_token)
 
     def check_new_line_constistency(self, expr):
         children = expr.children;
@@ -2940,6 +3074,8 @@ def get_argument_parser():
                         help='run the old tests')
     parser.add_argument('--header-username', action='store_true',
                         help="check the username in header comments")
+    parser.add_argument('-I', action='append',
+                        help="add a directory to the header search path")
     return parser
 
 
@@ -2979,20 +3115,37 @@ def test():
         print(parse(source))
 
 
-def check_file(source_file, checkers):
-    source = source_file.read()
-    tokens = lex(source, file_name=source_file.name)
-    root_expr = parse(tokens)
-    for checker in checkers:
-        if isinstance(checker, SourceChecker):
-            checker.check(source, tokens, root_expr)
-        else:
-            checker.check(tokens, root_expr)
-
-
 def print_issue(issue):
     print(issue)
 
+
+class Program:
+    def __init__(self, args):
+        self.include_search_path = args.I
+        checkers_classes = [
+            BinaryOpSpaceChecker,
+            CommentChecker,
+            DeclarationChecker,
+            DirectiveIndentationChecker,
+            FunctionLengthChecker,
+            FunctionCountChecker,
+            HeaderCommentChecker,
+            LineLengthChecker,
+            ReturnChecker,
+            TrailingWhitespaceChecker,
+            UnaryOpSpaceChecker,
+        ]
+        self.checkers = [c(print_issue, args) for c in checkers_classes]
+
+    def check_file(self, source_file):
+        source = source_file.read()
+        tokens = lex(source, file_name=source_file.name)
+        root_expr = parse(tokens, self.include_search_path)
+        for checker in self.checkers:
+            if isinstance(checker, SourceChecker):
+                checker.check(source, tokens, root_expr)
+            else:
+                checker.check(tokens, root_expr)
 
 def main():
     argument_parser = get_argument_parser()
@@ -3001,23 +3154,9 @@ def main():
         test()
         return
 
-    checkers_classes = [
-        BinaryOpSpaceChecker,
-        CommentChecker,
-        DeclarationChecker,
-        DirectiveIndentationChecker,
-        FunctionLengthChecker,
-        FunctionCountChecker,
-        HeaderCommentChecker,
-        LineLengthChecker,
-        ReturnChecker,
-        TrailingWhitespaceChecker,
-        UnaryOpSpaceChecker,
-    ]
-    checkers = [c(print_issue, args) for c in checkers_classes]
-
+    program = Program(args)
     for source_file in args.source_files:
-        check_file(source_file, checkers)
+        program.check_file(source_file)
         source_file.close()
 
 
