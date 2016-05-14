@@ -43,9 +43,8 @@ test.c:13:3: 'int' is not on the same line than 'a'
 ```
 
 - **The comments**
-
-Optionnally, it can check if the username in a header comment is
-valid with the `--header-username` option.
+  Optionnally, it can check if the username in a header comment is
+  valid with the `--header-username` option.
 
 - **The indentation of the preprocessor directives**
 
@@ -55,9 +54,8 @@ valid with the `--header-username` option.
 
 - **The lines length**
 
-- **The parentheses after `return`**
-
-    TODO: Check for the space after `return`
+- **The parentheses after `return`** — TODO: Check for the space
+  after `return`.
 
 - **The trailing whitespaces at the end of the lines**
 
