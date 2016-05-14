@@ -13,6 +13,25 @@ authentic hand-written recursive descent parser.
 However, the 1TBS checker does not handle macros and preprocessor
 directives (except `#include`).
 
+
+
+## Features
+
+The parser can process complex declarations like these ones:
+
+```c
+int *const *b;
+int (*getFunc())(int, int (*)(long));
+struct a {int c} f(void)[];
+```
+
+`<stdarg.h>` and `va_arg()` are supported. « Calls » to function-like
+macros with a type as argument are supported, ellipsis (`...`) is
+supported.
+
+`typedef` is (partially) supported.
+
+
 ## What does it checks?
 
 Currently:
@@ -62,22 +81,22 @@ Forbiden statements like `for` and `switch` are not implemented
 in the parser. If you use one, it leads to a syntax error.
 
 
+
 ## Run the tests
 
 Use `python3 -m unittest 1tbs`.
 
+
+
 ## TODO
 
-A lot of work.
+Not so much work.
 
-The parser can already process complex declarations like these ones:
+`enums` are not currently implemented, but it will added soon.
 
-```c
-int *const *b;
-int (*getFunc())(int, int (*)(long));
-```
-
-Macros are not implemented, `#define`s are ignored.
+Macros are not implemented, `#define`s are ignored. If you use a macro,
+it should look like a function call or an identifier, otherwise it leads
+to a syntax error.
 
 Structure and unions are not entirely implemeneted. Bit fields are
 not implemented.
