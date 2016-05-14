@@ -57,10 +57,12 @@ valid with the `--header-username` option.
 
 - **The parentheses after `return`**
 
-TODO: Check for the space after `return`
+  TODO: Check for the space after `return`
 
 - **The trailing whitespaces at the end of the lines**
 
+Forbiden statements like `for` and `switch` are not implemented
+in the parser. If you use one, it leads to a syntax error.
 
 
 ## Run the tests
