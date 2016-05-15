@@ -94,6 +94,9 @@ Not so much work.
 
 `enums` are not currently implemented, but it will added soon.
 
+C99 literals structs and arrays (`(int[]){1, 2, 3}` or
+`(position_t){.width = 23, .height = 45}`) are not implemented too.
+
 Macros are not implemented, `#define`s are ignored. If you use a macro,
 it should look like a function call or an identifier, otherwise it leads
 to a syntax error.
