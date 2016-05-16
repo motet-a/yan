@@ -874,6 +874,12 @@ class InitializerListExpr(Expr, AbstractBraceExpr):
     def initializers(self):
         return self._initializers
 
+    @property
+    def tokens(self):
+        return ([self.left_brace] +
+                self.initializers.tokens +
+                [self.right_brace])
+
     def __str__(self):
         return '{' + str(self.initializers) + '}'
 
@@ -1922,12 +1928,12 @@ class Parser(TokenReader):
         return InitializerListExpr(left_brace, list_expr, right_brace)
 
     def parse_initializer(self):
+        init_list = self.parse_initializer_list()
+        if init_list is not None:
+            return init_list
         expr = self.parse_assignment_expression()
         if expr is not None:
             return expr
-        left_brace = self.parse_sign('{')
-        if left_brace is not None:
-            self.raise_syntax_error('Initializer lists are not supported')
         return None
 
     def parse_init_declarator(self):
@@ -1988,7 +1994,7 @@ class Parser(TokenReader):
                 self.raise_syntax_error('Expected type name')
         if identifier is None and compound is None:
             self.raise_syntax_error("Expected identifier or "
-                                    "'{' after {!r}".format(kw.string))
+                                    "'{}' after {!r}".format('{', kw.string))
         return StructExpr(kw, identifier, compound)
         # TODO
 
@@ -2735,6 +2741,11 @@ class TestParser(unittest.TestCase):
     def test_compound_literal(self):
         self.checkExpr('(int *){23, 45, 67}')
         self.checkExpr('(int[]){23, 45, 67}')
+        self.checkExpr('(struct s *[12]){23, 45, 67}')
+
+    def test_initializer_list(self):
+        self.checkDecl('int a[] = {2, 3, 4};')
+        pass
 
     def test_enum(self):
         # TODO
