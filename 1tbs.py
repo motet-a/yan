@@ -947,7 +947,9 @@ class TypeNameExpr(Expr):
     def __str__(self):
         s = str(self.type_expr)
         if self.declarator is not None:
-            s += ' ' + str(self.declarator)
+            if not isinstance(self.declarator, SubscriptExpr):
+                s += ' '
+            s += str(self.declarator)
         return s
 
 
@@ -1133,8 +1135,14 @@ class SizeofExpr(Expr):
 
 class SubscriptExpr(Expr, AbstractBracketExpr):
     def __init__(self, expression, left_bracket, index, right_bracket):
+        """
+        `expression` can be null in the case of a direct abstract
+        declarator
+        """
         AbstractBracketExpr.__init__(self, left_bracket, right_bracket)
-        children = [expression]
+        children = []
+        if expression is not None:
+            children.append(expression)
         if index is not None:
             children.append(index)
         Expr.__init__(self, children)
@@ -1143,13 +1151,20 @@ class SubscriptExpr(Expr, AbstractBracketExpr):
 
     @property
     def tokens(self):
-        return (self.expression.tokens +
-                [self.left_bracket] +
-                (self.index.tokens if self.index is not None else []) +
-                [self.right_bracket])
+        l = []
+        if self.expression is not None:
+            l += self.expression.tokens
+        l.append(self.left_bracket)
+        if self.index is not None:
+            l += self.index.tokens
+        l.append(self.right_bracket)
+        return l
 
     def __str__(self):
-        s = str(self.expression) + '['
+        s = ''
+        if self.expression is not None:
+            s += str(self.expression)
+        s += '['
         if self.index is not None:
             s += str(self.index)
         return s + ']'
@@ -1793,7 +1808,9 @@ class Parser(TokenReader):
     def parse_direct_abstract_declarator(self):
         left = self.parse_declarator_parens(True)
         if left is None:
-            return None
+            left = self.parse_declarator_brackets(None)
+            if left is None:
+                return None
         while True:
             decl = self.parse_declarator_parens(True)
             if decl is None:
@@ -2717,6 +2734,7 @@ class TestParser(unittest.TestCase):
 
     def test_compound_literal(self):
         self.checkExpr('(int *){23, 45, 67}')
+        self.checkExpr('(int[]){23, 45, 67}')
 
     def test_enum(self):
         # TODO
