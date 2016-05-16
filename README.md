@@ -31,6 +31,9 @@ supported.
 
 `typedef` is (partially) supported.
 
+Some features of C99 will be implemented soon.
+
+
 
 ## What does it checks?
 

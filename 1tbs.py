@@ -863,6 +863,21 @@ class CompoundExpr(Expr, AbstractBraceExpr):
         return s
 
 
+class InitializerListExpr(Expr, AbstractBraceExpr):
+    def __init__(self, left_brace, initializers, right_brace):
+        assert isinstance(initializers, CommaListExpr)
+        AbstractBraceExpr.__init__(self, left_brace, right_brace)
+        Expr.__init__(self, [initializers])
+        self._initializers = initializers
+
+    @property
+    def initializers(self):
+        return self._initializers
+
+    def __str__(self):
+        return '{' + str(self.initializers) + '}'
+
+
 class FunctionDefinitionExpr(Expr):
     """
     A function definition
@@ -936,9 +951,37 @@ class TypeNameExpr(Expr):
         return s
 
 
+class CompoundLiteralExpr(Expr):
+    """
+    This is a C99 feature.
+
+    More details here: https://gcc.gnu.org/onlinedocs/gcc/Compound-Literals.html
+    """
+
+    def __init__(self, paren_type, compound):
+        assert isinstance(paren_type, ParenExpr)
+        assert isinstance(paren_type.expression, TypeNameExpr)
+        assert isinstance(compound, InitializerListExpr)
+        super().__init__([paren_type, compound])
+        self._paren_type = paren_type
+        self._compound = compound
+
+    @property
+    def paren_type(self):
+        return self._paren_type
+
+    @property
+    def compound(self):
+        return self._compound
+
+    def __str__(self):
+        return str(self.paren_type) + str(self.compound)
+
+
 class CastExpr(Expr):
     def __init__(self, paren_type, right):
         assert isinstance(paren_type, ParenExpr)
+        assert isinstance(paren_type, Expr)
 
         Expr.__init__(self, [paren_type, right])
         self._paren_type = paren_type
@@ -953,7 +996,7 @@ class CastExpr(Expr):
         return self._right
 
     def __str__(self):
-        return str(self.paren_type) + ' ' + str(self.right)
+        return str(self.paren_type) + str(self.right)
 
 
 class DeclarationExpr(Expr):
@@ -1625,7 +1668,7 @@ class Parser(TokenReader):
             return self.next()
         return token
 
-    def raise_syntax_error(self, message):
+    def raise_syntax_error(self, message='Syntax error'):
         raise SyntaxError(message, self.position)
 
     def parse_token(self, kind, string_list=None):
@@ -1841,6 +1884,25 @@ class Parser(TokenReader):
         if token is not None:
             return LiteralExpr(token)
         return self.parse_paren_expression()
+
+    def parse_initializer_list(self):
+        left_brace = self.parse_sign('{')
+        if left_brace is None:
+            return None
+        l = []
+        while True:
+            if len(l):
+                comma = self.parse_sign(',')
+                if comma is None:
+                    break
+                l.append(comma)
+            init = self.parse_initializer()
+            if init is None:
+                self.raise_syntax_error('Expected initializer')
+            l.append(init)
+        right_brace = self.expect_sign('}')
+        list_expr = CommaListExpr(l)
+        return InitializerListExpr(left_brace, list_expr, right_brace)
 
     def parse_initializer(self):
         expr = self.parse_assignment_expression()
@@ -2078,10 +2140,23 @@ class Parser(TokenReader):
             args_commas.append(argument)
         return CommaListExpr(args_commas)
 
+    def parse_compound_literal(self):
+        begin = self.index
+        parens = self.parse_parenthesed_type_name()
+        if parens is None:
+            return None
+        compound = self.parse_initializer_list()
+        if compound is None:
+            self.index = begin
+            return None
+        return CompoundLiteralExpr(parens, compound)
+
     def parse_postfix_expression(self):
         left = self.parse_primary_expression()
         if left is None:
-            return None
+            left = self.parse_compound_literal()
+            if left is None:
+                return None
         while True:
             op = self.parse_sign('[ ( ++ -- . ->'.split())
             if op is None:
@@ -2156,21 +2231,29 @@ class Parser(TokenReader):
             left = BinaryOperationExpr(left, op, sub_function())
         return left
 
-    def parse_cast_expression(self):
-        expr = self.parse_unary_expression()
-        if expr is not None:
-            return expr
+    def parse_parenthesed_type_name(self):
+        begin = self.index
         left_paren = self.parse_sign('(')
         if left_paren is None:
             return None
         type_name = self.parse_type_name()
         if type_name is None:
-            return self.raise_syntax_error('Expected type name')
+            self.index = begin
         right_paren = self.expect_sign(')')
+        if right_paren is None:
+            self.index = begin
+        return ParenExpr(left_paren, type_name, right_paren)
+
+    def parse_cast_expression(self):
+        expr = self.parse_unary_expression()
+        if expr is not None:
+            return expr
+        parens = self.parse_parenthesed_type_name()
+        if parens is None:
+            return None
         expr = self.parse_cast_expression()
         if expr is None:
             return self.raise_syntax_error('Expected expression')
-        parens = ParenExpr(left_paren, type_name, right_paren)
         return CastExpr(parens, expr)
 
     def parse_multiplicative_expression(self):
@@ -2432,6 +2515,7 @@ def parse(v, include_directories=None):
     parser = Parser(tokens)
     parser.add_include_directories(include_directories)
     tree = parser.parse()
+    assert isinstance(tree, Expr)
     tokens = [t for t in tokens if t.kind not in 'comment directive'.split()]
     if tokens != tree.tokens:
         if isinstance(v, str):
@@ -2456,6 +2540,7 @@ def parse_statement(v):
 def parse_expr(v):
     """
     v: a string or a list of tokens
+    Can return None
     """
     parser = Parser(argument_to_tokens(v))
     return parser.parse_expression()
@@ -2484,8 +2569,8 @@ class TestParser(unittest.TestCase):
         self.checkExpr('sizeof 123')
 
     def test_cast(self):
-        self.checkExpr('(int) 54.9')
-        self.checkExpr('(char **) 17')
+        self.checkExpr('(int)54.9')
+        self.checkExpr('(char **)17')
 
     def test_call(self):
         self.checkExpr('a()()()')
@@ -2629,6 +2714,9 @@ class TestParser(unittest.TestCase):
 
         with self.assertRaises(SyntaxError):
             parse('struct s {a + a;}')
+
+    def test_compound_literal(self):
+        self.checkExpr('(int *){23, 45, 67}')
 
     def test_enum(self):
         # TODO
