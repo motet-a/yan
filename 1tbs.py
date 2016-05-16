@@ -1139,6 +1139,55 @@ class SizeofExpr(Expr):
         return s
 
 
+class NameDesignatorExpr(Expr):
+    def __init__(self, dot, identifier):
+        assert isinstance(dot, Token)
+        assert dot.string == '.'
+        assert isinstance(identifier, LiteralExpr)
+        self._dot = dot
+        self._identifier = identifier
+
+    @property
+    def dot(self):
+        return self._dot
+
+    @property
+    def identifier(self):
+        return self._identifier
+
+    @property
+    def tokens(self):
+        return [self.dot] + self.identifier.tokens
+
+    def __str__(self):
+        return '.' + str(self.identifier)
+
+
+class BracketExpr(Expr, AbstractBracketExpr):
+    def __init__(self, left_bracket, expression, right_bracket):
+        AbstractBracketExpr.__init__(self, left_bracket, right_bracket)
+        Expr.__init__(self, [expression])
+        self._expression = expression
+
+    @property
+    def expression(self):
+        return self._expression
+
+    @property
+    def tokens(self):
+        return ([self.left_bracket] +
+                self.expression.tokens +
+                [self.right_bracket])
+
+    def __str__(self):
+        return '[' + str(self.expression) + ']'
+
+
+class IndexDesignatorExpr(BracketExpr):
+    def __init__(self, left_bracket, expression, right_bracket):
+        super().__init__(left_bracket, expression, right_bracket)
+
+
 class SubscriptExpr(Expr, AbstractBracketExpr):
     def __init__(self, expression, left_bracket, index, right_bracket):
         """
@@ -1380,7 +1429,11 @@ class ParenExpr(Expr, AbstractParenExpr):
     def __init__(self, left_paren, expression, right_paren):
         AbstractParenExpr.__init__(self, left_paren, right_paren)
         Expr.__init__(self, [expression])
-        self.expression = expression
+        self._expression = expression
+
+    @property
+    def expression(self):
+        return self._expression
 
     @property
     def tokens(self):
@@ -1908,6 +1961,38 @@ class Parser(TokenReader):
             return LiteralExpr(token)
         return self.parse_paren_expression()
 
+    def parse_name_designator(self):
+        dot = self.parse_sign('.')
+        if dot is None:
+            return None
+        name = self.parse_identifier()
+        if name is None:
+            self.raise_syntax_error()
+        return NameDesignatorExpr(dot, name)
+
+    def parse_designator(self):
+        name_des = self.parse_name_designator()
+        if name_des is not None:
+            return name_des
+        left_bracket = self.parse_sign('[')
+        if left_bracket is None:
+            return None
+        index = self.parse_constant_expression()
+        if index is None:
+            self.raise_syntax_error()
+        right_bracket = self.parse_sign(']')
+        return IndexDesignatorExpr(left_bracket, index, right_bracket)
+
+    def parse_designation(self):
+        designator = self.parse_designator()
+        if designator is None:
+            return None
+        eq = self.expect_sign('=')
+        right = self.parse_initializer()
+        if right is None:
+            self.raise_syntax_error()
+        return BinaryOperationExpr(designator, eq, right)
+
     def parse_initializer_list(self):
         left_brace = self.parse_sign('{')
         if left_brace is None:
@@ -1919,9 +2004,11 @@ class Parser(TokenReader):
                 if comma is None:
                     break
                 l.append(comma)
-            init = self.parse_initializer()
+            init = self.parse_designation()
             if init is None:
-                self.raise_syntax_error('Expected initializer')
+                init = self.parse_initializer()
+                if init is None:
+                    self.raise_syntax_error('Expected initializer')
             l.append(init)
         right_brace = self.expect_sign('}')
         list_expr = CommaListExpr(l)
@@ -2746,6 +2833,10 @@ class TestParser(unittest.TestCase):
     def test_initializer_list(self):
         self.checkDecl('int a[] = {2, 3, 4};')
         pass
+
+    def test_designated_initializer(self):
+        self.checkDecl('struct a a = {.a = 0, .b = 1};')
+        self.checkDecl('int a[] = {[0] = 0, [1] = 1};')
 
     def test_enum(self):
         # TODO
