@@ -1504,6 +1504,18 @@ class TokenReader:
         return self._tokens[self._index].end
 
 
+def backtrack(function):
+    def wrapper(*args, **kwds):
+        self = args[0]
+        assert isinstance(self, Parser)
+        begin = self.index
+        expr = function(*args, **kwds)
+        if expr is None:
+            self.index = begin
+        return expr
+    return wrapper
+
+
 class Parser(TokenReader):
     """
     A parser for the C language.
@@ -1758,6 +1770,7 @@ class Parser(TokenReader):
             elif string_list is None:
                 return t
         self.index = begin
+        return None
 
     def parse_keyword(self, keyword_list=None):
         for kw in keyword_list:
@@ -1777,13 +1790,12 @@ class Parser(TokenReader):
             self.raise_syntax_error('Expected {!r}'.format(sign_list))
         return id
 
+    @backtrack
     def parse_identifier_token(self):
-        begin = self.index
         token = self.parse_token('identifier')
         if token is None:
             return token
         if token.string in self.types and not self._in_typedef:
-            self.index = begin
             return None
         return token
 
@@ -1834,8 +1846,8 @@ class Parser(TokenReader):
                          CommaListExpr(params_commas),
                          right_paren)
 
+    @backtrack
     def parse_declarator_parens(self, abstract=False):
-        begin = self.index
         left_paren = self.parse_sign('(')
         if left_paren is not None:
             if not self.has_more:
@@ -1844,11 +1856,10 @@ class Parser(TokenReader):
             if decl is not None:
                 right_paren = self.expect_sign(')')
                 return ParenExpr(left_paren, decl, right_paren)
-            self.index = begin
         return None
 
+    @backtrack
     def parse_declarator_brackets(self, left):
-        begin = self.index
         left_bracket = self.parse_sign('[')
         if left_bracket is not None:
             if not self.has_more:
@@ -1861,7 +1872,6 @@ class Parser(TokenReader):
             if right_bracket is not None:
                 return SubscriptExpr(left,
                                      left_bracket, constant, right_bracket)
-            self.index = begin
         return None
 
     def parse_direct_abstract_declarator(self):
@@ -1904,18 +1914,17 @@ class Parser(TokenReader):
             break
         return left
 
+    @backtrack
     def parse_declarator(self, abstract=False):
         """
         Returns a declarator or None
         """
-        begin = self.index
         star = self.parse_sign('*')
         if star is None:
             return self.parse_direct_declarator(abstract)
         type_qualifiers = self.parse_type_qualifier_list()
         right = self.parse_declarator(abstract)
         if right is None and not abstract:
-            self.index = begin
             return None
         return PointerExpr(star, right, type_qualifiers)
 
@@ -1940,14 +1949,13 @@ class Parser(TokenReader):
         self.index = begin
         return self.parse_identifier_token()
 
+    @backtrack
     def parse_paren_expression(self):
-        begin = self.index
         left_paren = self.parse_sign('(')
         if left_paren is None:
             return None
         expr = self.parse_expression()
         if expr is None:
-            self.index = begin
             return None
         return ParenExpr(left_paren, expr, self.expect_sign(')'))
 
@@ -2085,6 +2093,7 @@ class Parser(TokenReader):
         return StructExpr(kw, identifier, compound)
         # TODO
 
+    @backtrack
     def parse_type_specifier(self, allowed_type_specs='bc'):
         """
         Returns an AbstractTypeSpecifierExpr or None
@@ -2102,11 +2111,9 @@ class Parser(TokenReader):
         if struct is not None:
             return struct
 
-        begin = self.index
         token = self.parse_token('identifier')
         if token is not None and token.string in self.types:
             return TypeSpecifierExpr(token)
-        self.index = begin
         return None
 
     def parse_type_qualifier(self):
@@ -2203,8 +2210,8 @@ class Parser(TokenReader):
             raise Exception(msg)
         self.add_type(name)
 
+    @backtrack
     def parse_declaration(self):
-        begin = self.index
         type_expr = self.parse_declaration_specifiers()
         if type_expr is None:
             return None
@@ -2214,7 +2221,6 @@ class Parser(TokenReader):
         self._in_typedef = False
         semicolon = self.parse_sign(';')
         if semicolon is None:
-            self.index = begin
             return None
         if type_expr.is_typedef:
             if len(declarators) == 0:
@@ -2250,14 +2256,13 @@ class Parser(TokenReader):
             args_commas.append(argument)
         return CommaListExpr(args_commas)
 
+    @backtrack
     def parse_compound_literal(self):
-        begin = self.index
         parens = self.parse_parenthesed_type_name()
         if parens is None:
             return None
         compound = self.parse_initializer_list()
         if compound is None:
-            self.index = begin
             return None
         return CompoundLiteralExpr(parens, compound)
 
@@ -2341,17 +2346,17 @@ class Parser(TokenReader):
             left = BinaryOperationExpr(left, op, sub_function())
         return left
 
+    @backtrack
     def parse_parenthesed_type_name(self):
-        begin = self.index
         left_paren = self.parse_sign('(')
         if left_paren is None:
             return None
         type_name = self.parse_type_name()
         if type_name is None:
-            self.index = begin
+            return None
         right_paren = self.expect_sign(')')
         if right_paren is None:
-            self.index = begin
+            return None
         return ParenExpr(left_paren, type_name, right_paren)
 
     def parse_cast_expression(self):
@@ -2428,14 +2433,13 @@ class Parser(TokenReader):
         ops = '= *= /= %= += -= <<= >>= &= ^= |='.split()
         return self.parse_sign(ops)
 
+    @backtrack
     def parse_assignment_expression_2(self):
-        begin = self.index
         unary = self.parse_unary_expression()
         if unary is None:
             return None
         op = self.parse_assignment_operator()
         if op is None:
-            self.index = begin
             return None
         right = self.parse_assignment_expression()
         return BinaryOperationExpr(unary, op, right)
