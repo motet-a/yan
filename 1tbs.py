@@ -574,14 +574,13 @@ class CommaListExpr(Expr):
     Reprensents a list of expressions separated by commas
     """
 
-    def __init__(self, comma_separated_children):
+    def __init__(self, comma_separated_children, allow_trailing=False):
         """
         comma_separated_children is a list of expressions
         separated by commas tokens.
-        No trailing comma.
         """
 
-        if len(comma_separated_children) > 0:
+        if len(comma_separated_children) > 0 and not allow_trailing:
             assert len(comma_separated_children) % 2 == 1
 
         children = [d for d in comma_separated_children
@@ -694,7 +693,8 @@ class StructExpr(AbstractTypeSpecifierExpr):
             assert isinstance(compound, CompoundExpr)
             assert len(compound.statements) == 0
 
-        Expr.__init__(self, [] if compound is None else [compound])
+        children = [] if compound is None else [compound]
+        AbstractTypeSpecifierExpr.__init__(self, children)
 
         self._struct = struct
         self._identifier = identifier
@@ -734,6 +734,64 @@ class StructExpr(AbstractTypeSpecifierExpr):
             s += ' ' + self.identifier.string
         if self.compound is not None:
             s += '\n' + str(self.compound)
+        return s
+
+
+class EnumExpr(AbstractTypeSpecifierExpr):
+    """
+    Represents an enum
+    """
+
+    def __init__(self, enum, identifier, body):
+        """
+        enum: The keyword `enum`
+        identifier: The name of the enum or None
+        body: The "body" of the enum or None
+        """
+        assert isinstance(enum, Token)
+        assert enum.string == 'enum'
+
+        if identifier is not None:
+            assert isinstance(identifier, Token)
+            assert identifier.kind == 'identifier'
+
+        if body is not None:
+            assert isinstance(body, InitializerListExpr)
+
+        children = [] if body is None else [body]
+        AbstractTypeSpecifierExpr.__init__(self, children)
+
+        self._enum = enum
+        self._identifier = identifier
+        self._body = body
+
+    @property
+    def enum(self):
+        return self._enum
+
+    @property
+    def identifier(self):
+        return self._identifier
+
+    @property
+    def body(self):
+        return self._body
+
+    @property
+    def tokens(self):
+        t = [self.enum]
+        if self.identifier is not None:
+            t.append(self.identifier)
+        if self.body is not None:
+            t += self.body.tokens
+        return t
+
+    def __str__(self):
+        s = 'enum'
+        if self.identifier is not None:
+            s += ' ' + self.identifier.string
+        if self.body is not None:
+            s += '\n' + str(self.body)
         return s
 
 
@@ -1147,6 +1205,7 @@ class NameDesignatorExpr(Expr):
         assert isinstance(identifier, LiteralExpr)
         self._dot = dot
         self._identifier = identifier
+        super().__init__([])
 
     @property
     def dot(self):
@@ -2131,6 +2190,39 @@ class Parser(TokenReader):
         return StructExpr(kw, identifier, compound)
         # TODO
 
+    def parse_enumerator(self):
+        return self.parse_identifier()
+
+    def parse_enumerator_list(self):
+        left_brace = self.parse_sign('{')
+        if left_brace is None:
+            return None
+        l = []
+        while True:
+            enumerator = self.parse_enumerator()
+            if enumerator is None:
+                break
+            l.append(enumerator)
+            comma = self.parse_sign(',')
+            if comma is None:
+                break
+            l.append(comma)
+        right_brace = self.expect_sign('}')
+        list_expr = CommaListExpr(l, allow_trailing=True)
+        return InitializerListExpr(left_brace, list_expr, right_brace)
+
+
+    def parse_enum_specifier(self):
+        kw = self.parse_keyword(['enum'])
+        if kw is None:
+            return None
+        identifier = self.parse_identifier_token()
+        body = self.parse_enumerator_list()
+        if identifier is None and body is None:
+            self.raise_syntax_error("Expected identifier or "
+                                    "'{}' after {!r}".format('{', kw.string))
+        return EnumExpr(kw, identifier, body)
+
     @backtrack
     def parse_type_specifier(self, allowed_type_specs='bc'):
         """
@@ -2148,6 +2240,10 @@ class Parser(TokenReader):
         struct = self.parse_struct_or_union_specifier()
         if struct is not None:
             return struct
+
+        enum = self.parse_enum_specifier()
+        if enum is not None:
+            return enum
 
         token = self.parse_token('identifier')
         if token is not None and token.string in self.types:
