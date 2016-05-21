@@ -1721,6 +1721,7 @@ class Parser(TokenReader):
 
         stddef = 'size_t ptrdiff_t'
         strings = {
+            'assert.h':         '',
             'dirent.h':         'DIR',
             'errno.h':          '',
             'fcntl.h':          '',
@@ -3467,7 +3468,24 @@ def test():
         print(parse(source))
 
 
+def print_escape_code(code, string, end):
+    print('\x1b[' + str(code) + 'm' + string + '\x1b[0m', end=end)
+
+
+def get_color_code(name):
+    colors = 'black red green yellow blue magenta cyan white'.split()
+    if name not in colors:
+        raise Exception()
+    return colors.index(name)
+
+
+def print_fg_color(color_name, string, end='\n'):
+    print_escape_code(get_color_code(color_name) + 90, string, end)
+
+
 def print_issue(issue):
+    color = 'red' if issue.level == 'error' else 'yellow'
+    print_fg_color(color, issue.level, end=' ')
     print(issue)
 
 
@@ -3516,17 +3534,14 @@ class Program:
                     continue
             self.check_file_or_dir(file_path, include_dirs)
 
-    def _print_escape_code(self, string, code):
+    def _print_fg_color(self, color_name, string):
         if self.colors:
-            print('\x1b[' + str(code) + 'm' + string + '\x1b[0m')
+            print_fg_color(color_name, string)
         else:
             print(string)
 
-    def _print_grey(self, string):
-        self._print_escape_code(string, 90)
-
     def _check_file(self, path, include_dirs):
-        self._print_grey(path)
+        self._print_fg_color('black', path)
         with open(path) as source_file:
             source = source_file.read()
             tokens = lex(source, file_name=path)
