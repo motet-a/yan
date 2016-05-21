@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
-import unittest
+import argparse
+import os
 import re
 import sys
-import argparse
+import unittest
 
 
 class Position:
@@ -1648,7 +1649,6 @@ class Parser(TokenReader):
 
     @property
     def directory_path(self):
-        import os
         return os.path.dirname(self.file_name)
 
     def _get_header_path(self, header_name, system):
@@ -1656,8 +1656,6 @@ class Parser(TokenReader):
         system: True if the header has been included with `#include <...>`,
         false if `#include "..."` has been used.
         """
-
-        import os
 
         if not system:
             header_path = os.path.join(self.directory_path, header_name)
@@ -1672,8 +1670,6 @@ class Parser(TokenReader):
         return None
 
     def _expand_local_header(self, header_path):
-        import os
-
         if (header_path, False) in self._included_headers:
             return
         self._included_headers.append((header_path, False))
@@ -1707,8 +1703,6 @@ class Parser(TokenReader):
         print('Warning: Header not found: {!r}'.format(header_name))
 
     def process_include(self, directive_string):
-        import os
-
         s = directive_string
         assert s.startswith('include')
         s = s[len('include'):].strip()
@@ -3276,12 +3270,50 @@ class DeclarationChecker(StyleChecker):
             self.check_new_line_constistency(decl)
 
 
+def get_makefile_content(directory_path):
+    """
+    Looks for a Makefile in the directory and reads it.
+
+    Returns a string of the Makefile content on success.
+    If the Makefile is not found or if an error occured,
+    returns None.
+    """
+
+    makefile_path = os.path.join(directory_path, 'Makefile')
+    if not os.path.exists(makefile_path):
+        return None
+    try:
+        return open(makefile_path).read()
+    except OSError:
+        return None
+
+
+def get_include_dirs_from_makefile(directory_path):
+    """
+    Returns a list of the include directores read from the Makefile.
+    """
+    makefile_content = get_makefile_content(directory_path)
+    if makefile_content is None:
+        return []
+    dirs = []
+    for line in makefile_content.splitlines():
+        if line.count('-I') != 1:
+            continue
+        i = line.index('-I')
+        words = line[i+2:].split()
+        if words == 0:
+            continue
+        path = os.path.normpath(os.path.join(directory_path, words[0]))
+        dirs.append(path)
+    return dirs
+
+
 def get_argument_parser():
     descr = 'Check your C programs against the "EPITECH norm".'
     parser = argparse.ArgumentParser(description=descr)
     parser.add_argument('source_files',
-                        nargs='*', type=argparse.FileType('r'),
-                        help='source files to check')
+                        nargs='*',
+                        help='source files or directories to check')
     parser.add_argument('--test', action='store_true',
                         help='run the old tests')
     parser.add_argument('--header-username', action='store_true',
@@ -3333,7 +3365,9 @@ def print_issue(issue):
 
 class Program:
     def __init__(self, args):
-        self.include_search_path = args.I
+        self.include_dirs = args.I
+        if self.include_dirs is None:
+            self.include_dirs = []
         checkers_classes = [
             BinaryOpSpaceChecker,
             CommentChecker,
@@ -3347,17 +3381,53 @@ class Program:
             TrailingWhitespaceChecker,
             UnaryOpSpaceChecker,
         ]
+        self.colors = os.isatty(sys.stdout.fileno())
         self.checkers = [c(print_issue, args) for c in checkers_classes]
 
-    def check_file(self, source_file):
-        source = source_file.read()
-        tokens = lex(source, file_name=source_file.name)
-        root_expr = parse(tokens, self.include_search_path)
-        for checker in self.checkers:
-            if isinstance(checker, SourceChecker):
-                checker.check(source, tokens, root_expr)
-            else:
-                checker.check(tokens, root_expr)
+    def check_file_or_dir(self, path, include_dirs=None):
+        if include_dirs is None:
+            include_dirs = self.include_dirs
+            if os.path.isdir(path):
+                include_dirs += get_include_dirs_from_makefile(path)
+
+        if os.path.isdir(path):
+            self._check_dir(path, include_dirs)
+        elif os.path.isfile(path):
+            self._check_file(path, include_dirs)
+        else:
+            raise Exception('{!r} is not a file nor a directory'.format(path))
+
+    def _check_dir(self, path, include_dirs):
+        include_dirs += get_include_dirs_from_makefile(path)
+        for file_name in os.listdir(path):
+            if file_name.startswith('.'):
+                continue
+            file_path = os.path.join(path, file_name)
+            if os.path.isfile(file_path):
+                if not file_name.endswith('.c'):
+                    continue
+            self.check_file_or_dir(file_path, include_dirs)
+
+    def _print_escape_code(self, string, code):
+        if self.colors:
+            print('\x1b[' + str(code) + 'm' + string + '\x1b[0m')
+        else:
+            print(string)
+
+    def _print_grey(self, string):
+        self._print_escape_code(string, 90)
+
+    def _check_file(self, path, include_dirs):
+        self._print_grey(path)
+        with open(path) as source_file:
+            source = source_file.read()
+            tokens = lex(source, file_name=path)
+            root_expr = parse(tokens, include_dirs)
+            for checker in self.checkers:
+                if isinstance(checker, SourceChecker):
+                    checker.check(source, tokens, root_expr)
+                else:
+                    checker.check(tokens, root_expr)
 
 def main():
     argument_parser = get_argument_parser()
@@ -3368,8 +3438,7 @@ def main():
 
     program = Program(args)
     for source_file in args.source_files:
-        program.check_file(source_file)
-        source_file.close()
+        program.check_file_or_dir(source_file)
 
 
 if __name__ == '__main__':
