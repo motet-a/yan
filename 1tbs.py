@@ -1022,7 +1022,8 @@ class CompoundLiteralExpr(Expr):
     """
     This is a C99 feature.
 
-    More details here: https://gcc.gnu.org/onlinedocs/gcc/Compound-Literals.html
+    More details here:
+    https://gcc.gnu.org/onlinedocs/gcc/Compound-Literals.html
     """
 
     def __init__(self, paren_type, compound):
@@ -2212,7 +2213,6 @@ class Parser(TokenReader):
         list_expr = CommaListExpr(l, allow_trailing=True)
         return InitializerListExpr(left_brace, list_expr, right_brace)
 
-
     def parse_enum_specifier(self):
         kw = self.parse_keyword(['enum'])
         if kw is None:
@@ -3391,7 +3391,7 @@ class DeclarationChecker(StyleChecker):
                                  func_def.declarator.first_token)
 
     def check_new_line_constistency(self, expr):
-        children = expr.children;
+        children = expr.children
         prev = None
         for child in children:
             if prev is not None and len(prev.tokens) and len(child.tokens):
@@ -3551,6 +3551,7 @@ class Program:
                     checker.check(source, tokens, root_expr)
                 else:
                     checker.check(tokens, root_expr)
+
 
 def main():
     argument_parser = get_argument_parser()
