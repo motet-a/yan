@@ -1470,6 +1470,44 @@ def get_declarator_name(declarator):
     return None if token is None else token.string
 
 
+def get_makefile_content(directory_path):
+    """
+    Looks for a Makefile in the directory and reads it.
+
+    Returns a string of the Makefile content on success.
+    If the Makefile is not found or if an error occured,
+    returns None.
+    """
+
+    makefile_path = os.path.join(directory_path, 'Makefile')
+    if not os.path.exists(makefile_path):
+        return None
+    try:
+        return open(makefile_path).read()
+    except OSError:
+        return None
+
+
+def get_include_dirs_from_makefile(directory_path):
+    """
+    Returns a list of the include directores read from the Makefile.
+    """
+    makefile_content = get_makefile_content(directory_path)
+    if makefile_content is None:
+        return []
+    dirs = []
+    for line in makefile_content.splitlines():
+        if line.count('-I') != 1:
+            continue
+        i = line.index('-I')
+        words = line[i+2:].split()
+        if words == 0:
+            continue
+        path = os.path.normpath(os.path.join(directory_path, words[0]))
+        dirs.append(path)
+    return dirs
+
+
 class TokenReader:
     """
     An utility to read a list of tokens.
@@ -1529,7 +1567,8 @@ class Parser(TokenReader):
         self._types = []
         self._included_headers = []
         self._in_typedef = False
-        self._include_directories = []
+        inc_dirs = get_include_dirs_from_makefile(self.directory_path)
+        self._include_directories = inc_dirs
 
     def add_include_directory(self, dir_path):
         self._include_directories.append(dir_path)
@@ -1731,6 +1770,15 @@ class Parser(TokenReader):
             return self.has_more_impl(index + 1)
         return True
 
+    def process_directive(self, directive):
+        s = directive.string.strip()
+        assert s[0] == '#'
+        # There may be several spaces between the '#' and the
+        # next word, we need to strip these
+        s = s[1:].strip()
+        if s.startswith('include'):
+            self.process_include(s)
+
     @property
     def has_more(self):
         return self.has_more_impl()
@@ -1740,13 +1788,7 @@ class Parser(TokenReader):
         if token.kind == 'comment':
             return self.next()
         elif token.kind == 'directive':
-            s = token.string.strip()
-            assert s[0] == '#'
-            # There may be several spaces between the '#' and the
-            # next word, we need to strip these
-            s = s[1:].strip()
-            if s.startswith('include'):
-                self.process_include(s)
+            self.process_directive(token)
             return self.next()
         return token
 
@@ -2599,7 +2641,13 @@ class Parser(TokenReader):
                 self.raise_syntax_error(s)
             if decl is not None:
                 declarations.append(decl)
-        return TranslationUnitExpr(declarations)
+        expr = TranslationUnitExpr(declarations)
+        while self.index < len(self._tokens):
+            token = self._tokens[self.index]
+            if token.kind == 'directive':
+                self.process_directive(token)
+            self.index += 1
+        return expr
 
     def parse(self):
         return self.parse_translation_unit()
@@ -3270,44 +3318,6 @@ class DeclarationChecker(StyleChecker):
         decls = expr.select('function')
         for decl in decls:
             self.check_new_line_constistency(decl)
-
-
-def get_makefile_content(directory_path):
-    """
-    Looks for a Makefile in the directory and reads it.
-
-    Returns a string of the Makefile content on success.
-    If the Makefile is not found or if an error occured,
-    returns None.
-    """
-
-    makefile_path = os.path.join(directory_path, 'Makefile')
-    if not os.path.exists(makefile_path):
-        return None
-    try:
-        return open(makefile_path).read()
-    except OSError:
-        return None
-
-
-def get_include_dirs_from_makefile(directory_path):
-    """
-    Returns a list of the include directores read from the Makefile.
-    """
-    makefile_content = get_makefile_content(directory_path)
-    if makefile_content is None:
-        return []
-    dirs = []
-    for line in makefile_content.splitlines():
-        if line.count('-I') != 1:
-            continue
-        i = line.index('-I')
-        words = line[i+2:].split()
-        if words == 0:
-            continue
-        path = os.path.normpath(os.path.join(directory_path, words[0]))
-        dirs.append(path)
-    return dirs
 
 
 def get_argument_parser():
