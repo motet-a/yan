@@ -1659,12 +1659,14 @@ class Parser(TokenReader):
 
         if not system:
             header_path = os.path.join(self.directory_path, header_name)
+            header_path = os.path.normpath(header_path)
             if os.path.exists(header_path):
                 return header_path
 
         for dir_path in self.include_directories:
             if os.path.exists(dir_path):
                 header_path = os.path.join(dir_path, header_name)
+                header_path = os.path.normpath(header_path)
                 if os.path.exists(header_path):
                     return header_path
         return None
