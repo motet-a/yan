@@ -3485,7 +3485,10 @@ def print_fg_color(color_name, string, end='\n'):
 
 def print_issue(issue):
     color = 'red' if issue.level == 'error' else 'yellow'
-    print_fg_color(color, issue.level, end=' ')
+    if os.isatty(sys.stdout.fileno()):
+        print_fg_color(color, issue.level, end=' ')
+    else:
+        print(issue.level, end=' ')
     print(issue)
 
 
