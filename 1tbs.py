@@ -164,6 +164,7 @@ if
 inline
 int
 long
+noreturn
 register
 restrict
 return
@@ -1603,6 +1604,298 @@ class TokenReader:
         return self._tokens[self._index].end
 
 
+class IncludedFile:
+    def __init__(self, system, path):
+        assert isinstance(system, bool)
+        assert isinstance(path, str)
+        self._system = system
+        self._path = path
+
+    def __eq__(self, other):
+        return (isinstance(other, self.__class__)
+                and self.__dict__ == other.__dict__)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    @property
+    def system(self):
+        return self._system
+
+    @property
+    def path(self):
+        return self._path
+
+    def __repr__(self):
+        return '<IncludedFile system={!r} path={!r}>'.format(
+            self.system, self.path)
+
+
+class TestIncludedFile(unittest.TestCase):
+    def test_eq(self):
+        self.assertEqual(IncludedFile(True, 'a.h'),
+                         IncludedFile(True, 'a.h'))
+
+
+class FileInclusion:
+    def __init__(self, token_index, file):
+        """
+        token_index: The index of the removed inclusion in the
+        preprocessed token list.
+        file: An IncludedFile
+        """
+        assert isinstance(file, IncludedFile)
+        self._token_index = token_index
+        self._file = file
+
+    @property
+    def token_index(self):
+        return self._token_index
+
+    @property
+    def file(self):
+        return self._file
+
+    def __repr__(self):
+        return '<FileInclusion file={!r} token_index={!r}>'.format(
+            self.file, self.token_index)
+
+
+class PreprocessorResult:
+    def __init__(self, tokens, inclusions):
+        self._tokens = tokens[:]
+        self._inclusions = inclusions[:]
+
+    @property
+    def tokens(self):
+        return self._tokens[:]
+
+    @property
+    def inclusions(self):
+        return self._inclusions[:]
+
+    def append(self, o):
+        if isinstance(o, Token):
+            self._tokens.append(o)
+        elif isinstance(o, FileInclusion):
+            self._inclusions.append(o)
+        else:
+            raise ValueError()
+
+    def __add__(self, other):
+        return PreprocessorResult(self.tokens + other.tokens,
+                                  self.inclusions + other.inclusions)
+
+
+def get_system_header_types():
+    """
+    Types are part of the syntax. We must know the defined types
+    to be able to parse correctly a file. But parsing a header
+    of the libc full of macros is fairly complicated: since this
+    program has no real preprocessor, it doesn't handle the macros.
+
+    So here is a list of the standard types defined in the standard
+    headers.
+    """
+    stdint = ('intmax_t int8_t int16_t int32_t int64_t '
+              'int_least8_t int_least16_t int_least32_t int_least64_t '
+              'int_fast8_t int_fast16_t int_fast32_t int_fast64_t '
+              'intptr_t ').split()
+    stdint += ['u' + type for type in stdint]
+    stdint = ' '.join(stdint)
+
+    # http://pubs.opengroup.org/onlinepubs/009696699/basedefs/sys/types.h.html
+    sys_types = """
+    blkcnt_t
+    blksize_t
+    clock_t
+    clockid_t
+    dev_t
+    fd_set
+    fsblkcnt_t
+    fsfilcnt_t
+    gid_t
+    id_t
+    ino_t
+    key_t
+    mode_t
+    nlink_t
+    off_t
+    pid_t
+    pthread_attr_t
+    pthread_barrier_t
+    pthread_barrierattr_t
+    pthread_cond_t
+    pthread_condattr_t
+    pthread_key_t
+    pthread_mutex_t
+    pthread_mutexattr_t
+    pthread_once_t
+    pthread_rwlock_t
+    pthread_rwlockattr_t
+    pthread_spinlock_t
+    pthread_t
+    size_t
+    ssize_t
+    suseconds_t
+    time_t
+    timer_t
+    trace_attr_t
+    trace_event_id_t
+    trace_event_set_t
+    trace_id_t
+    uid_t
+    useconds_t
+    """
+
+    # shared by curses.h and ncurses.h
+    curses = 'MEVENT WINDOW'
+
+    stddef = 'size_t ptrdiff_t'
+    strings = {
+        'assert.h':     '',
+        'curses.h':     curses,
+        'dirent.h':     'DIR',
+        'errno.h':      '',
+        'fcntl.h':      '',
+        'grp.h':        '',
+        'ncurses.h':    curses,
+        'pwd.h':        '',
+        'setjmp.h':     'jmp_buf',
+        'signal.h':     'sighandler_t sigset_t',
+        'stdarg.h':     'va_list',
+        'stddef.h':     stddef,
+        'stdint.h':     stdint,
+        'stdio.h':      stddef + ' FILE',
+        'stdlib.h':     stddef + ' div_t ldiv_t',
+        'string.h':     stddef,
+        'time.h':       stddef + ' clock_t time_t',
+        'unistd.h':     stddef + ' ssize_t',
+        'sys/stat.h':   '',
+        'sys/types.h':  sys_types,
+    }
+    return {h: types.split() for h, types in strings.items()}
+
+
+def get_included_file_path(dir_path,
+                           included_file_name, system, include_dirs):
+    """
+    Searches a file name in the given directories.
+
+    dir_path: The path of the directory of the source file.
+    included_file_name: The included header name.
+    system: True if the header has been included with `#include <...>`,
+    false if `#include "..."` has been used.
+
+    Returns the path of the file to include relative to `dir_path` if this
+    file is found.
+    Returns None otherwise.
+    """
+
+    if not system:
+        header_path = os.path.join(dir_path, included_file_name)
+        header_path = os.path.normpath(header_path)
+        if os.path.exists(header_path):
+            return header_path
+
+    for inc_dir in include_dirs:
+        if not os.path.exists(inc_dir):
+            continue
+        header_path = os.path.join(inc_dir, included_file_name)
+        header_path = os.path.normpath(header_path)
+        if os.path.exists(header_path):
+            return header_path
+    return None
+
+
+def preprocess_system_include(token_index, name):
+    """
+    Returns a FileInclusion on success.
+    Returns None if there is no system header with the given name.
+    """
+
+    system_headers = get_system_header_types()
+    if name not in system_headers:
+        print('Warning: Header not found: {!r}'.format(name))
+        return None
+    included_file = IncludedFile(True, name)
+    return FileInclusion(token_index, included_file)
+
+
+def preprocess_local_include(token_index, path):
+    """
+    Returns a FileInclusion on success.
+    """
+
+    assert os.path.exists(path)
+    included_file = IncludedFile(False, path)
+    return FileInclusion(token_index, included_file)
+
+
+def preprocess_include(token_index, directive_string, position, include_dirs):
+    s = directive_string
+    assert s.startswith('include')
+    s = s[len('include'):].strip()
+    if s.startswith('<') and s.endswith('>'):
+        system = True
+    elif s.startswith('"') and s.endswith('"'):
+        system = False
+    else:
+        raise SyntaxError('Invalid #include directive', position)
+    name = s[1:-1]
+    dir_path = os.path.dirname(position.file_name)
+    included_file_path = get_included_file_path(dir_path,
+                                                name, system,
+                                                include_dirs)
+    if included_file_path is None:
+        return preprocess_system_include(token_index, name)
+    else:
+        return preprocess_local_include(token_index, included_file_path)
+
+
+def preprocess_directive(token_index, directive, include_dirs):
+    """
+    Returns a FileInclusion or None.
+    """
+    assert directive.kind == 'directive'
+    s = directive.string.strip()
+    assert s[0] == '#'
+    # There may be several spaces between the '#' and the
+    # next word, we need to strip these
+    s = s[1:].strip()
+    if s.startswith('include'):
+        return preprocess_include(token_index, s, directive.begin,
+                                  include_dirs)
+    if s.startswith('ifdef'):
+        s = s[5].strip()
+        return None
+
+
+def preprocess(tokens, include_dirs=None):
+    """
+    Warning: This is not a real C preprocessor.
+
+    This function acts a bit like a preprocessor since it removes
+    comments and expands includes.
+    """
+
+    if include_dirs is None:
+        include_dirs = []
+
+    result = PreprocessorResult([], [])
+    for token in tokens:
+        if token.kind == 'comment':
+            continue
+        elif token.kind == 'directive':
+            i = len(result.tokens)
+            fi = preprocess_directive(i, token, include_dirs)
+            if fi is not None:
+                result.append(fi)
+        else:
+            result.append(token)
+    return result
+
+
 def backtrack(function):
     def wrapper(*args, **kwds):
         self = args[0]
@@ -1622,24 +1915,27 @@ class Parser(TokenReader):
     Grammar: http://www.lysator.liu.se/c/ANSI-C-grammar-y.html
     """
 
-    def __init__(self, tokens):
-        TokenReader.__init__(self, tokens)
+    def __init__(self, tokens, include_dirs=None):
+        self._source_tokens = tokens[:]
+        self._include_dirs = include_dirs[:]
+        pp_result = preprocess(tokens, include_dirs)
+        self._inclusions = pp_result.inclusions[:]
+
+        TokenReader.__init__(self, pp_result.tokens)
         self._types = []
-        self._included_headers = []
+        self._included_files = []
         self._in_typedef = False
-        inc_dirs = get_include_dirs_from_makefile(self.directory_path)
-        self._include_directories = inc_dirs
-
-    def add_include_directory(self, dir_path):
-        self._include_directories.append(dir_path)
-
-    def add_include_directories(self, dirs_paths):
-        for dir_path in dirs_paths:
-            self.add_include_directory(dir_path)
 
     @property
-    def include_directories(self):
-        return self._include_directories[:]
+    def file_name(self):
+        tokens = self._source_tokens
+        if len(tokens) == 0:
+            return '<unknown file>'
+        return tokens[0].begin.file_name
+
+    def _is_already_included(self, included_file):
+        assert isinstance(included_file, IncludedFile)
+        return included_file in self._included_files
 
     @property
     def types(self):
@@ -1659,131 +1955,21 @@ class Parser(TokenReader):
         for type_name in types:
             self.add_type(type_name)
 
-    def get_system_headers_types(self):
-        """
-        Types are part of the syntax. We must know the defined types
-        to be able to parse correctly a file. But parsing a header
-        of the libc full of macros is fairly complicated: since this
-        program has no real preprocessor, it doesn't handle the macros.
+    def _expand_local_include(self, included_file):
+        assert not included_file.system
 
-        So here is a list of the standard types defined in the standard
-        headers.
-        """
-        stdint = ('intmax_t int8_t int16_t int32_t int64_t '
-                  'int_least8_t int_least16_t int_least32_t int_least64_t '
-                  'int_fast8_t int_fast16_t int_fast32_t int_fast64_t '
-                  'intptr_t ').split()
-        stdint += ['u' + type for type in stdint]
-        stdint = ' '.join(stdint)
-
-        # http://pubs.opengroup.org/onlinepubs/009696699/basedefs/sys/types.h.html
-        sys_types = """
-        blkcnt_t
-        blksize_t
-        clock_t
-        clockid_t
-        dev_t
-        fd_set
-        fsblkcnt_t
-        fsfilcnt_t
-        gid_t
-        id_t
-        ino_t
-        key_t
-        mode_t
-        nlink_t
-        off_t
-        pid_t
-        pthread_attr_t
-        pthread_barrier_t
-        pthread_barrierattr_t
-        pthread_cond_t
-        pthread_condattr_t
-        pthread_key_t
-        pthread_mutex_t
-        pthread_mutexattr_t
-        pthread_once_t
-        pthread_rwlock_t
-        pthread_rwlockattr_t
-        pthread_spinlock_t
-        pthread_t
-        size_t
-        ssize_t
-        suseconds_t
-        time_t
-        timer_t
-        trace_attr_t
-        trace_event_id_t
-        trace_event_set_t
-        trace_id_t
-        uid_t
-        useconds_t
-        """
-
-        stddef = 'size_t ptrdiff_t'
-        strings = {
-            'assert.h':         '',
-            'dirent.h':         'DIR',
-            'errno.h':          '',
-            'fcntl.h':          '',
-            'grp.h':            '',
-            'pwd.h':            '',
-            'setjmp.h':         'jmp_buf',
-            'signal.h':         'sighandler_t sigset_t',
-            'stdarg.h':         'va_list',
-            'stddef.h':         stddef,
-            'stdint.h':         stdint,
-            'stdio.h':          stddef + ' FILE',
-            'stdlib.h':         stddef + ' div_t ldiv_t',
-            'string.h':         stddef,
-            'time.h':           stddef + ' clock_t time_t',
-            'unistd.h':         stddef + ' ssize_t',
-            'sys/stat.h':       '',
-            'sys/types.h':      sys_types,
-        }
-        return {h: types.split() for h, types in strings.items()}
-
-    @property
-    def file_name(self):
-        return self._tokens[0].begin.file_name
-
-    @property
-    def directory_path(self):
-        return os.path.dirname(self.file_name)
-
-    def _get_header_path(self, header_name, system):
-        """
-        system: True if the header has been included with `#include <...>`,
-        false if `#include "..."` has been used.
-        """
-
-        if not system:
-            header_path = os.path.join(self.directory_path, header_name)
-            header_path = os.path.normpath(header_path)
-            if os.path.exists(header_path):
-                return header_path
-
-        for dir_path in self.include_directories:
-            if os.path.exists(dir_path):
-                header_path = os.path.join(dir_path, header_name)
-                header_path = os.path.normpath(header_path)
-                if os.path.exists(header_path):
-                    return header_path
-        return None
-
-    def _expand_local_header(self, header_path):
-        if (header_path, False) in self._included_headers:
+        if self._is_already_included(included_file):
             return
-        self._included_headers.append((header_path, False))
+        self._included_files.append(included_file)
 
-        assert os.path.exists(header_path)
-        with open(header_path) as h:
+        path = included_file.path
+        assert os.path.exists(path)
+        with open(path) as h:
             source = h.read()
-        tokens = lex(source, file_name=header_path)
-        parser = Parser(tokens)
+        tokens = lex(source, file_name=path)
+        parser = Parser(tokens, self._include_dirs)
         parser.add_types(self.types)
-        parser.add_include_directories(self.include_directories)
-        parser._included_headers += self._included_headers
+        parser._included_files += self._included_files
         try:
             parser.parse()
         except SyntaxError as e:
@@ -1792,66 +1978,38 @@ class Parser(TokenReader):
             raise e
         self.add_types(parser._types)
 
-    def _expand_system_header(self, header_name):
-        headers_types = self.get_system_headers_types()
-        if header_name in headers_types:
+    def _expand_system_include(self, included_file):
+        assert included_file.system
 
-            if (header_name, True) in self._included_headers:
-                return
-            self._included_headers.append((header_name, True))
+        header_types = get_system_header_types()
+        name = included_file.path
+        assert name in header_types
 
-            self.add_types(headers_types[header_name])
+        if self._is_already_included(included_file):
             return
-        print('Warning: Header not found: {!r}'.format(header_name))
 
-    def process_include(self, directive_string):
-        s = directive_string
-        assert s.startswith('include')
-        s = s[len('include'):].strip()
-        if s.startswith('<') and s.endswith('>'):
-            system = True
-        elif s.startswith('"') and s.endswith('"'):
-            system = False
+        self._included_files.append(included_file)
+        self.add_types(header_types[name])
+
+    def _expand_included_file(self, included_file):
+        assert isinstance(included_file, IncludedFile)
+        #print('expand included file {!r}'.format(included_file.path))
+        if included_file.system:
+            self._expand_system_include(included_file)
         else:
-            self.raise_syntax_error('Invalid #include directive')
-        name = s[1:-1]
-        header_path = self._get_header_path(name, system)
-        if header_path is None:
-            self._expand_system_header(name)
-        else:
-            self._expand_local_header(header_path)
+            self._expand_local_include(included_file)
 
-    def has_more_impl(self, index=-1):
-        if index == -1:
-            index = self.index
-        if index >= len(self._tokens):
-            return False
-        next_token = self._tokens[index]
-        if next_token.kind == 'comment' or next_token.kind == 'directive':
-            return self.has_more_impl(index + 1)
-        return True
-
-    def process_directive(self, directive):
-        s = directive.string.strip()
-        assert s[0] == '#'
-        # There may be several spaces between the '#' and the
-        # next word, we need to strip these
-        s = s[1:].strip()
-        if s.startswith('include'):
-            self.process_include(s)
-
-    @property
-    def has_more(self):
-        return self.has_more_impl()
+    def _expand_inclusions(self):
+        while len(self._inclusions) > 0:
+            inclusion = self._inclusions[0]
+            if inclusion.token_index != self.index:
+                break
+            self._inclusions.pop(0)
+            self._expand_included_file(inclusion.file)
 
     def next(self):
-        token = TokenReader.next(self)
-        if token.kind == 'comment':
-            return self.next()
-        elif token.kind == 'directive':
-            self.process_directive(token)
-            return self.next()
-        return token
+        self._expand_inclusions()
+        return TokenReader.next(self)
 
     def raise_syntax_error(self, message='Syntax error'):
         raise SyntaxError(message, self.position)
@@ -2164,6 +2322,16 @@ class Parser(TokenReader):
             declarators.append(comma)
         return CommaListExpr(declarators)
 
+    def parse_function_specifier(self):
+        """
+        Returns a TypeSpecifierExpr or None
+        """
+        kw_strings = 'inline noreturn'.split()
+        token = self.parse_keyword(kw_strings)
+        if token is None:
+            return None
+        return TypeSpecifierExpr(token)
+
     def parse_storage_class_specifier(self):
         """
         Returns a TypeSpecifierExpr or None
@@ -2193,7 +2361,7 @@ class Parser(TokenReader):
         # TODO
 
     def parse_enumerator(self):
-        return self.parse_identifier()
+        return self.parse_assignment_expression()
 
     def parse_enumerator_list(self):
         left_brace = self.parse_sign('{')
@@ -2294,6 +2462,10 @@ class Parser(TokenReader):
                 allowed_type_specs = ''
 
         spec = self.parse_type_qualifier()
+        if spec is not None:
+            specs.append(spec)
+
+        spec = self.parse_function_specifier()
         if spec is not None:
             specs.append(spec)
 
@@ -2739,11 +2911,9 @@ class Parser(TokenReader):
             if decl is not None:
                 declarations.append(decl)
         expr = TranslationUnitExpr(declarations)
-        while self.index < len(self._tokens):
-            token = self._tokens[self.index]
-            if token.kind == 'directive':
-                self.process_directive(token)
-            self.index += 1
+        self._expand_inclusions()
+        if len(self._inclusions) > 0:
+            raise Exception()
         return expr
 
     def parse(self):
@@ -2754,7 +2924,7 @@ def argument_to_tokens(v):
     if isinstance(v, str):
         v = lex(v)
     if not isinstance(v, list):
-        raise ArgumentError('Expected a list of tokens')
+        raise ValueError('Expected a list of tokens')
     return v
 
 
@@ -2767,11 +2937,10 @@ def parse(v, include_directories=None):
         include_directories = []
 
     tokens = argument_to_tokens(v)
-    parser = Parser(tokens)
-    parser.add_include_directories(include_directories)
+    parser = Parser(tokens, include_directories)
     tree = parser.parse()
     assert isinstance(tree, Expr)
-    tokens = [t for t in tokens if t.kind not in 'comment directive'.split()]
+    tokens = preprocess(tokens, include_directories).tokens
     if tokens != tree.tokens:
         if isinstance(v, str):
             print(v)
@@ -3420,15 +3589,20 @@ class DeclarationChecker(StyleChecker):
 def get_argument_parser():
     descr = 'Check your C programs against the "EPITECH norm".'
     parser = argparse.ArgumentParser(description=descr)
+
     parser.add_argument('source_files',
                         nargs='*',
                         help='source files or directories to check')
-    parser.add_argument('--test', action='store_true',
-                        help='run the old tests')
-    parser.add_argument('--header-username', action='store_true',
-                        help="check the username in header comments")
     parser.add_argument('-I', action='append',
                         help="add a directory to the header search path")
+    parser.add_argument('--verbose', '-v', action='store_true',
+                        help="verbose output")
+
+    parser.add_argument('--test', action='store_true',
+                        help='run the old tests')
+
+    parser.add_argument('--header-username', action='store_true',
+                        help="check the username in header comments")
     return parser
 
 
@@ -3510,6 +3684,7 @@ class Program:
             TrailingWhitespaceChecker,
             UnaryOpSpaceChecker,
         ]
+        self.verbose = args.verbose
         self.colors = os.isatty(sys.stdout.fileno())
         self.checkers = [c(print_issue, args) for c in checkers_classes]
 
@@ -3527,13 +3702,14 @@ class Program:
             raise Exception('{!r} is not a file nor a directory'.format(path))
 
     def _check_dir(self, path, include_dirs):
+        self._print_fg_color('blue', 'checking directory {!r}'.format(path))
         include_dirs += get_include_dirs_from_makefile(path)
         for file_name in os.listdir(path):
             if file_name.startswith('.'):
                 continue
             file_path = os.path.join(path, file_name)
             if os.path.isfile(file_path):
-                if not file_name.endswith('.c'):
+                if not (file_name.endswith('.c') or file_name.endswith('.h')):
                     continue
             self.check_file_or_dir(file_path, include_dirs)
 
@@ -3544,7 +3720,8 @@ class Program:
             print(string)
 
     def _check_file(self, path, include_dirs):
-        self._print_fg_color('black', path)
+        if self.verbose:
+            self._print_fg_color('black', path)
         with open(path) as source_file:
             source = source_file.read()
             tokens = lex(source, file_name=path)
