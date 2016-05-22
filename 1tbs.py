@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+# pylint: disable=too-many-lines
+
+"""
+A C brace style checker designed for the "EPITECH norm".
+"""
+
 import argparse
 import os
 import re
@@ -8,7 +14,18 @@ import unittest
 
 
 class Position:
+    """
+    Represents a position in a file.
+    """
+
     def __init__(self, file_name, index=0, line=1, column=1):
+        """
+        file_name: The file path.
+        index: The index relative to the begin of the file
+        line: The 1-based line number
+        column: The 1-based column number
+        """
+
         self._file_name = file_name
         self._index = index
         self._line = line
@@ -217,10 +234,11 @@ def get_lexer_spec():
 
     This is quite unintelligible.
     """
+    # pylint: disable=bad-whitespace
 
     int_suffix = r'[uUlL]*'
     float_suffix = r'[fFlL]?'
-    e_suffix = '[Ee][+-]?\d+'
+    e_suffix = r'[Ee][+-]?\d+'
 
     hex_digit = r'[a-fA-F0-9]'
     hex_digits = hex_digit + '+'
@@ -279,24 +297,25 @@ def check_directive(string, begin):
 
 def lex_token(source_string, file_name):
     position = Position(file_name)
-    for mo in re.finditer(get_lexer_regexp(), source_string):
-        kind = mo.lastgroup
-        string = mo.group(kind)
-        assert len(string) == (mo.end() - mo.start())
-        begin = Position(file_name, mo.start(),
+    for match in re.finditer(get_lexer_regexp(), source_string):
+        kind = match.lastgroup
+        string = match.group(kind)
+        assert len(string) == (match.end() - match.start())
+        begin = Position(file_name, match.start(),
                          position.line, position.column)
-        end = Position(file_name, mo.end(),
+        end = Position(file_name, match.end(),
                        position.line, position.column + len(string) - 1)
         position = Position(file_name, end.index, end.line, end.column + 1)
 
         if kind == '__newline__':
-            position = Position(file_name, mo.end(), position.line + 1)
+            position = Position(file_name, match.end(), position.line + 1)
             continue
         elif kind == 'comment' and '\n' in string:
             end_line = position.line + string.count('\n')
             end_column = len(string) - string.rindex('\n')
-            end = Position(file_name, mo.end(), end_line, end_column)
-            position = Position(file_name, mo.end(), end_line, end_column + 1)
+            end = Position(file_name, match.end(), end_line, end_column)
+            position = Position(file_name,
+                                match.end(), end_line, end_column + 1)
 
         if kind == '__skip__':
             pass
@@ -607,11 +626,14 @@ class CommaListExpr(Expr):
         return ', '.join(str(child) for child in self.children)
 
 
-def makeAbstractBracketExpr(class_name, signs, name):
+def make_abstract_bracket_expr(class_name, signs, name):
     """
     Returns a new class
     """
     def __init__(self, left_bracket, right_bracket):
+        # pylint fails to analyse properly this function
+        # pylint disable=protected-access
+
         assert isinstance(left_bracket, Token)
         assert left_bracket.kind == 'sign'
         assert left_bracket.string == signs[0]
@@ -636,14 +658,14 @@ def makeAbstractBracketExpr(class_name, signs, name):
     })
 
 
-AbstractParenExpr = makeAbstractBracketExpr('AbstractParenExpr',
-                                            '()', 'paren')
+AbstractParenExpr = make_abstract_bracket_expr('AbstractParenExpr',
+                                               '()', 'paren')
 
-AbstractBracketExpr = makeAbstractBracketExpr('AbstractBracketExpr',
-                                              '[]', 'bracket')
+AbstractBracketExpr = make_abstract_bracket_expr('AbstractBracketExpr',
+                                                 '[]', 'bracket')
 
-AbstractBraceExpr = makeAbstractBracketExpr('AbstractBraceExpr',
-                                            '{}', 'brace')
+AbstractBraceExpr = make_abstract_bracket_expr('AbstractBraceExpr',
+                                               '{}', 'brace')
 
 
 class AbstractTypeSpecifierExpr(Expr):
@@ -879,7 +901,7 @@ class FunctionExpr(Expr):
     def tokens(self):
         for t in self.parameters.tokens:
             assert isinstance(t, Token)
-        return (self.declarator.tokens + self.parameters.tokens)
+        return self.declarator.tokens + self.parameters.tokens
 
     def __str__(self):
         return '{}{}'.format(self.declarator, self.parameters)
@@ -1293,7 +1315,7 @@ class PointerExpr(Expr):
     This class cannot extend UnaryOperationExpr since `right` can be None.
     """
     def __init__(self, star, right, type_qualifiers):
-        assert(star.string == '*')
+        assert star.string == '*'
         Expr.__init__(self, [] if right is None else [right])
         self.star = star
         self.right = right
@@ -2408,24 +2430,24 @@ class Parser(TokenReader):
             if left is None:
                 return None
         while True:
-            op = self.parse_sign('[ ( ++ -- . ->'.split())
-            if op is None:
+            operator = self.parse_sign('[ ( ++ -- . ->'.split())
+            if operator is None:
                 break
-            if op.string == '(':
+            if operator.string == '(':
                 args_commas = self.parse_argument_expression_list()
                 right_paren = self.expect_sign(')')
-                left = CallExpr(left, op, args_commas, right_paren)
-            elif op.string == '[':
+                left = CallExpr(left, operator, args_commas, right_paren)
+            elif operator.string == '[':
                 expr = self.parse_expression()
                 right_bracket = self.expect_sign(']')
-                left = SubscriptExpr(left, op, expr, right_bracket)
-            elif op.string in '++ --'.split():
-                left = UnaryOperationExpr(op, left, postfix=True)
-            elif op.string in '. ->'.split():
+                left = SubscriptExpr(left, operator, expr, right_bracket)
+            elif operator.string in '++ --'.split():
+                left = UnaryOperatorerationExpr(operator, left, postfix=True)
+            elif operator.string in '. ->'.split():
                 identifier = self.parse_identifier()
                 if identifier is None:
                     self.raise_syntax_error('Expected an identifier')
-                left = BinaryOperationExpr(left, op, identifier)
+                left = BinaryOperationExpr(left, operator, identifier)
             else:
                 raise Exception()
         return left
@@ -2676,21 +2698,21 @@ class Parser(TokenReader):
         return StatementExpr(JumpExpr(token, None), semicolon)
 
     def parse_statement(self):
-        s = self.parse_compound_statement()
-        if s is not None:
-            return s
-        s = self.parse_expression_statement()
-        if s is not None:
-            return s
-        s = self.parse_selection_statement()
-        if s is not None:
-            return s
-        s = self.parse_iteration_statement()
-        if s is not None:
-            return s
-        s = self.parse_jump_statement()
-        if s is not None:
-            return s
+        stmt = self.parse_compound_statement()
+        if stmt is not None:
+            return stmt
+        stmt = self.parse_expression_statement()
+        if stmt is not None:
+            return stmt
+        stmt = self.parse_selection_statement()
+        if stmt is not None:
+            return stmt
+        stmt = self.parse_iteration_statement()
+        if stmt is not None:
+            return stmt
+        stmt = self.parse_jump_statement()
+        if stmt is not None:
+            return stmt
         return None
 
     def parse_statement_list(self):
@@ -3041,17 +3063,17 @@ class TestParser(unittest.TestCase):
         e = parse_expr('1 + 1')
         plus = e.select('binary_operation')
         assert len(plus) == 1
-        assert type(list(plus)[0]) is BinaryOperationExpr
+        assert isinstance(list(plus)[0], BinaryOperationExpr)
 
         one = e.select('literal')
         assert len(one) == 2
         for c in one:
-            assert type(c) is LiteralExpr
+            assert isinstance(c, LiteralExpr)
 
         one = e.select('binary_operation literal')
         assert len(one) == 2
         for c in one:
-            assert type(c) is LiteralExpr
+            assert isinstance(c, LiteralExpr)
 
         with self.assertRaises(ValueError):
             parse_expr('123').select('')
@@ -3493,6 +3515,10 @@ def print_issue(issue):
 
 
 class Program:
+    """
+    The main program
+    """
+
     def __init__(self, args):
         self.include_dirs = args.I
         if self.include_dirs is None:
