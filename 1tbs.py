@@ -97,19 +97,19 @@ class Position:
 
 class TestPosition(unittest.TestCase):
     def test_begin_position(self):
-        p = Position('abcd')
-        self.assertEqual(p.file_name, 'abcd')
-        self.assertEqual(p.index, 0)
-        self.assertEqual(p.line, 1)
-        self.assertEqual(p.column, 1)
-        self.assertEqual(str(p), 'abcd:1:1')
+        pos = Position('abcd')
+        self.assertEqual(pos.file_name, 'abcd')
+        self.assertEqual(pos.index, 0)
+        self.assertEqual(pos.line, 1)
+        self.assertEqual(pos.column, 1)
+        self.assertEqual(str(pos), 'abcd:1:1')
 
     def test_position(self):
-        p = Position('abcd', 2, 3, 4)
-        self.assertEqual(p.index, 2)
-        self.assertEqual(p.line, 3)
-        self.assertEqual(p.column, 4)
-        self.assertEqual(str(p), 'abcd:3:4')
+        pos = Position('abcd', 2, 3, 4)
+        self.assertEqual(pos.index, 2)
+        self.assertEqual(pos.line, 3)
+        self.assertEqual(pos.column, 4)
+        self.assertEqual(str(pos), 'abcd:3:4')
 
 
 TOKEN_KINDS = [
@@ -123,7 +123,20 @@ TOKEN_KINDS = [
 
 
 class Token:
+    """
+    Represents a token
+    """
+
     def __init__(self, kind, string, begin, end):
+        """
+        kind: A string describing the kind of the token. It shoud be an
+        item of TOKEN_KINDS.
+        string: The string of the token. This is a part of the source,
+        its length should be equal to `end - begin`.
+        begin: A Position representing the begin of the token
+        end: A Position representing the end of the token
+        """
+
         assert isinstance(kind, str)
         assert kind in TOKEN_KINDS
         assert isinstance(string, str)
@@ -137,31 +150,66 @@ class Token:
 
     @property
     def kind(self):
+        """
+        Returns a string describing the kind of the token
+
+        TOKEN_KINDS contains the list of the different kinds.
+        """
+
         return self._kind
 
     @property
     def string(self):
+        """
+        Returns the string of the token
+        """
+
         return self._string
 
     @property
     def begin(self):
+        """
+        Returns a Position describing the begin of the token
+        """
+
         return self._begin
 
     @property
     def end(self):
+        """
+        Returns a Position describing the end of the token
+        """
+
         return self._end
 
     def __str__(self):
+        """
+        Returns the string of the token
+        """
+
         return self.string
 
     def __repr__(self):
+        """
+        Returns a string describing the token for debugging purposes
+        """
+
         return '<Token kind={}, string={!r}, begin={}, end={}>'.format(
             self.kind, self.string, self.begin, self.end,
         )
 
 
 class AbstractIssue:
+    """
+    Represents a style issue reported by the checker
+    """
+
     def __init__(self, message, position):
+        """
+        message: A string describing the issue
+        position: The Position of the issue
+        """
+
         assert isinstance(message, str)
         assert isinstance(position, Position)
         self._message = message
@@ -169,17 +217,36 @@ class AbstractIssue:
 
     @property
     def message(self):
+        """
+        Returns a string describing the issue
+
+        Does not include the position of the issue.
+        """
+
         return self._message
 
     @property
     def position(self):
+        """
+        Returns the position of the issue
+        """
+
         return self._position
 
     def __str__(self):
+        """
+        Returns an user-friendly string describing the issue and
+        its position
+        """
+
         return "{}: {}".format(self.position, self.message)
 
 
 class SyntaxError(Exception, AbstractIssue):
+    """
+    Represents a syntax error
+    """
+
     def __init__(self, message, position):
         Exception.__init__(self, message)
         AbstractIssue.__init__(self, message, position)
@@ -2015,7 +2082,7 @@ class Parser(TokenReader):
         left_bracket = self.parse_sign('[')
         if left_bracket is not None:
             if not self.has_more:
-                raise_syntax_error("Expected ']'")
+                self.raise_syntax_error("Expected ']'")
             constant = self.parse_constant_expression()
             if constant is None:
                 right_bracket = self.parse_sign(']')
@@ -2208,8 +2275,7 @@ class Parser(TokenReader):
                 if comma is None:
                     break
                 else:
-                    self.raise_syntax_error("Expected declarator after ','",
-                                            comma.begin)
+                    self.raise_syntax_error("Expected declarator after ','")
             declarators.append(declarator)
             comma = self.parse_sign(',')
             if comma is None:
@@ -2473,7 +2539,7 @@ class Parser(TokenReader):
                 right_bracket = self.expect_sign(']')
                 left = SubscriptExpr(left, operator, expr, right_bracket)
             elif operator.string in '++ --'.split():
-                left = UnaryOperatorerationExpr(operator, left, postfix=True)
+                left = UnaryOperationExpr(operator, left, postfix=True)
             elif operator.string in '. ->'.split():
                 identifier = self.parse_identifier()
                 if identifier is None:
@@ -2807,7 +2873,7 @@ def argument_to_tokens(v):
     if isinstance(v, str):
         v = lex(v)
     if not isinstance(v, list):
-        raise ArgumentError('Expected a list of tokens')
+        raise ValueError('Expected a list of tokens')
     return v
 
 
