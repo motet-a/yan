@@ -33,31 +33,62 @@ class Position:
 
     @property
     def file_name(self):
+        """
+        Returns the file path
+        """
+
         return self._file_name
 
     @property
     def index(self):
+        """
+        Returns the index relative to the begin of the file
+        """
+
         return self._index
 
     @property
     def line(self):
+        """
+        Returns the 1-based line number
+        """
+
         return self._line
 
     @property
     def column(self):
+        """
+        Returns the 1-based column number
+        """
+
         return self._column
 
     def __add__(self, other):
-        if isinstance(other, Position):
-            other = other.index
+        """
+        Adds an integer to the index of this position
+
+        Doesn't mutate this position and returns an integer.
+        """
+
         return self.index + other
 
     def __sub__(self, other):
+        """
+        Subtract an integer or the index of another position from this
+        position.
+
+        Doesn't mutate this position and returns an integer.
+        """
+
         if isinstance(other, Position):
             other = other.index
         return self.index - other
 
     def __str__(self):
+        """
+        Returns an user-friendly string describing this position
+        """
+
         return '{}:{}:{}'.format(
             self.file_name,
             self.line,
