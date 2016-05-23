@@ -673,7 +673,7 @@ class Expr:
             raise ValueError('No selector in the given string')
         selector = selectors[0]
         expr_classes = Expr._get_expr_classes()
-        selected = []
+        selected = frozenset()
         if selector in expr_classes:
             selected = self.select_classes(expr_classes[selector])
         else:
@@ -794,9 +794,17 @@ def make_abstract_bracket_expr(class_name, signs, name):
         self._right_bracket = right_bracket
 
     def right_bracket(self):
+        """
+        Return the right bracket token.
+        """
+        # pylint: disable=protected-access
         return self._right_bracket
 
     def left_bracket(self):
+        """
+        Return the left bracket token.
+        """
+        # pylint: disable=protected-access
         return self._left_bracket
 
     return type(class_name, (object,), {
@@ -820,15 +828,23 @@ AbstractBraceExpr = make_abstract_bracket_expr('AbstractBraceExpr',
 
 
 class AbstractTypeSpecifierExpr(Expr):
+    """
+    Represents a type specifier.
+    """
+
     def __init__(self, children):
         Expr.__init__(self, children)
 
 
 class TypeSpecifierExpr(AbstractTypeSpecifierExpr):
+    """
+    Represents a single token type specifier.
+    """
+
     def __init__(self, specifier_token):
         assert (specifier_token.kind == 'identifier' or
                 specifier_token.kind == 'keyword')
-        Expr.__init__(self, [])
+        super().__init__([])
         self._token = specifier_token
 
     @property
@@ -876,43 +892,59 @@ class StructExpr(AbstractTypeSpecifierExpr):
     @property
     def kind(self):
         """
-        Return the string 'struct' or 'union'
+        Return the string 'struct' or 'union'.
         """
         return self.struct.string
 
     @property
     def struct(self):
+        """
+        Return the 'struct' or 'union' token.
+        """
         return self._struct
 
     @property
     def identifier(self):
+        """
+        Return the name of the struct or None.
+
+        A struct name is not a type name. For example, this struct
+        is named 'a', not 'b' :
+
+            typedef struct a {
+                int c;
+            } b;
+        """
         return self._identifier
 
     @property
     def compound(self):
+        """
+        Return the "body" of the struct, braces included.
+        """
         return self._compound
 
     @property
     def tokens(self):
-        t = [self.struct]
+        tokens = [self.struct]
         if self.identifier is not None:
-            t.append(self.identifier)
+            tokens.append(self.identifier)
         if self.compound is not None:
-            t += self.compound.tokens
-        return t
+            tokens += self.compound.tokens
+        return tokens
 
     def __str__(self):
-        s = self.kind
+        string = self.kind
         if self.identifier is not None:
-            s += ' ' + self.identifier.string
+            string += ' ' + self.identifier.string
         if self.compound is not None:
-            s += '\n' + str(self.compound)
-        return s
+            string += '\n' + str(self.compound)
+        return string
 
 
 class EnumExpr(AbstractTypeSpecifierExpr):
     """
-    Represents an enum
+    Represents an enum.
     """
 
     def __init__(self, enum, identifier, body):
@@ -940,14 +972,23 @@ class EnumExpr(AbstractTypeSpecifierExpr):
 
     @property
     def enum(self):
+        """
+        Return the 'enum' token.
+        """
         return self._enum
 
     @property
     def identifier(self):
+        """
+        Return the token representing the name of the enum or None.
+        """
         return self._identifier
 
     @property
     def body(self):
+        """
+        Return the "body" of the enum, braces included.
+        """
         return self._body
 
     @property
@@ -2004,7 +2045,6 @@ def preprocess_system_include(token_index, name):
     Returns a FileInclusion on success.
     Returns None if there is no system header with the given name.
     """
-
     system_headers = get_system_header_types()
     if name not in system_headers:
         print('Warning: Header not found: {!r}'.format(name))
@@ -2017,23 +2057,31 @@ def preprocess_local_include(token_index, path):
     """
     Returns a FileInclusion on success.
     """
-
     assert os.path.exists(path)
     included_file = IncludedFile(False, path)
     return FileInclusion(token_index, included_file)
 
 
 def preprocess_include(token_index, directive_string, position, include_dirs):
-    s = directive_string
-    assert s.startswith('include')
-    s = s[len('include'):].strip()
-    if s.startswith('<') and s.endswith('>'):
-        system = True
-    elif s.startswith('"') and s.endswith('"'):
-        system = False
-    else:
-        raise SyntaxError('Invalid #include directive', position)
-    name = s[1:-1]
+
+    def get_name_and_system(directive_string, position):
+        """
+        Return a tuple (name, system) where 'name' is the included file
+        name specified between the quotes, and 'system' is True if
+        '#include <...>' has been used, False if '#include "..."' has
+        been used.
+        """
+        assert directive_string.startswith('include')
+        quoted_name = directive_string[len('include'):].strip()
+        name = quoted_name[1:-1]
+        if quoted_name.startswith('<') and quoted_name.endswith('>'):
+            return name, True
+        elif quoted_name.startswith('"') and quoted_name.endswith('"'):
+            return name, True
+        else:
+            raise SyntaxError('Invalid #include directive', position)
+
+    name, system = get_name_and_system(directive_string, position)
     dir_path = os.path.dirname(position.file_name)
     included_file_path = get_included_file_path(dir_path,
                                                 name, system,
@@ -2049,16 +2097,16 @@ def preprocess_directive(token_index, directive, include_dirs):
     Returns a FileInclusion or None.
     """
     assert directive.kind == 'directive'
-    s = directive.string.strip()
-    assert s[0] == '#'
+    string = directive.string.strip()
+    assert string[0] == '#'
     # There may be several spaces between the '#' and the
     # next word, we need to strip these
-    s = s[1:].strip()
-    if s.startswith('include'):
-        return preprocess_include(token_index, s, directive.begin,
+    string = string[1:].strip()
+    if string.startswith('include'):
+        return preprocess_include(token_index, string, directive.begin,
                                   include_dirs)
-    if s.startswith('ifdef'):
-        s = s[5].strip()
+    if string.startswith('ifdef'):
+        string = string[5].strip()
         return None
 
 
@@ -2069,7 +2117,6 @@ def preprocess(tokens, include_dirs=None):
     This function acts a bit like a preprocessor since it removes
     comments and expands includes.
     """
-
     if include_dirs is None:
         include_dirs = []
 
@@ -2088,6 +2135,13 @@ def preprocess(tokens, include_dirs=None):
 
 
 def backtrack(function):
+    """
+    This function is used as a decorator in the parser.
+
+    If the decorated function returns None, backtracking is performed:
+    the parser current token is reset to the token when the decorated
+    function was called.
+    """
     def wrapper(*args, **kwds):
         self = args[0]
         assert isinstance(self, Parser)
@@ -2204,63 +2258,66 @@ class Parser(TokenReader):
         self._expand_inclusions()
         return TokenReader.next(self)
 
-    def raise_syntax_error(self, message='Syntax error'):
+    def _raise_syntax_error(self, message='Syntax error'):
+        """
+        Raises a syntax error at the current position.
+        """
         raise NSyntaxError(message, self.position)
 
-    def parse_token(self, kind, string_list=None):
+    def _parse_token(self, kind, string_list=None):
         if isinstance(string_list, str):
             string_list = [string_list]
         if not self.has_more:
             return None
         begin = self.index
-        t = self.next()
-        if t.kind == kind:
-            if (string_list is not None) and t.string in string_list:
-                return t
+        token = self.next()
+        if token.kind == kind:
+            if (string_list is not None) and token.string in string_list:
+                return token
             elif string_list is None:
-                return t
+                return token
         self.index = begin
         return None
 
-    def parse_keyword(self, keyword_list=None):
+    def _parse_keyword(self, keyword_list=None):
         for kw in keyword_list:
             assert kw in KEYWORDS
-        return self.parse_token('keyword', keyword_list)
+        return self._parse_token('keyword', keyword_list)
 
-    def parse_sign(self, sign_list=None):
+    def _parse_sign(self, sign_list=None):
         if sign_list is None:
             sign_list = []
         for sign in sign_list:
             assert sign in SIGNS
-        return self.parse_token('sign', sign_list)
+        return self._parse_token('sign', sign_list)
 
-    def expect_sign(self, sign_list):
-        id = self.parse_sign(sign_list)
+    def _expect_sign(self, sign_list):
+        id = self._parse_sign(sign_list)
         if id is None:
-            self.raise_syntax_error('Expected {!r}'.format(sign_list))
+            self._raise_syntax_error('Expected {!r}'.format(sign_list))
         return id
 
     @backtrack
-    def parse_identifier_token(self):
-        token = self.parse_token('identifier')
+    def _parse_identifier_token(self):
+        token = self._parse_token('identifier')
         if token is None:
             return token
         if token.string in self.types and not self._in_typedef:
             return None
         return token
 
-    def expect_identifier_token(self):
-        id = self.parse_identifier_token()
+    def _expect_identifier_token(self):
+        id = self._parse_identifier_token()
         if id is None:
-            self.raise_syntax_error('Expected identifier')
+            self._raise_syntax_error('Expected identifier')
 
-    def parse_identifier(self):
-        token = self.parse_identifier_token()
+    def _parse_identifier(self):
+        token = self._parse_identifier_token()
         if token is None:
             return None
         return LiteralExpr(token)
 
-    def parse_parameter_declaration(self):
+    def _parse_parameter_declaration(self):
         type_expr = self.parse_declaration_specifiers()
         if type_expr is None:
             return None
@@ -2271,67 +2328,67 @@ class Parser(TokenReader):
         return ParameterExpr(type_expr, declarator)
 
     def parse_parameter_type_list(self):
-        left_paren = self.parse_sign('(')
+        left_paren = self._parse_sign('(')
         if left_paren is None:
             return None
         params_commas = []
         comma = None
         while self.has_more:
             if len(params_commas) > 0:
-                comma = self.parse_sign(',')
+                comma = self._parse_sign(',')
                 if comma is None:
                     break
                 params_commas.append(comma)
-            param = self.parse_parameter_declaration()
+            param = self._parse_parameter_declaration()
             if param is None:
                 if len(params_commas) > 0:
-                    param = self.parse_sign('...')
+                    param = self._parse_sign('...')
                     if param is None:
-                        self.raise_syntax_error("Expected parameter after ','")
+                        self._raise_syntax_error()
                     params_commas.append(param)
                 break
             params_commas.append(param)
-        right_paren = self.expect_sign(')')
+        right_paren = self._expect_sign(')')
         return ParenExpr(left_paren,
                          CommaListExpr(params_commas),
                          right_paren)
 
     @backtrack
-    def parse_declarator_parens(self, abstract=False):
-        left_paren = self.parse_sign('(')
+    def _parse_declarator_parens(self, abstract=False):
+        left_paren = self._parse_sign('(')
         if left_paren is not None:
             if not self.has_more:
-                self.raise_syntax_error("Expected ')'")
+                self._raise_syntax_error("Expected ')'")
             decl = self.parse_declarator(abstract)
             if decl is not None:
-                right_paren = self.expect_sign(')')
+                right_paren = self._expect_sign(')')
                 return ParenExpr(left_paren, decl, right_paren)
         return None
 
     @backtrack
     def parse_declarator_brackets(self, left):
-        left_bracket = self.parse_sign('[')
+        left_bracket = self._parse_sign('[')
         if left_bracket is not None:
             if not self.has_more:
-                self.raise_syntax_error("Expected ']'")
+                self._raise_syntax_error("Expected ']'")
             constant = self.parse_constant_expression()
             if constant is None:
-                right_bracket = self.parse_sign(']')
+                right_bracket = self._parse_sign(']')
             else:
-                right_bracket = self.expect_sign(']')
+                right_bracket = self._expect_sign(']')
             if right_bracket is not None:
                 return SubscriptExpr(left,
                                      left_bracket, constant, right_bracket)
         return None
 
-    def parse_direct_abstract_declarator(self):
-        left = self.parse_declarator_parens(True)
+    def _parse_direct_abstract_declarator(self):
+        left = self._parse_declarator_parens(True)
         if left is None:
             left = self.parse_declarator_brackets(None)
             if left is None:
                 return None
         while True:
-            decl = self.parse_declarator_parens(True)
+            decl = self._parse_declarator_parens(True)
             if decl is None:
                 params = self.parse_parameter_type_list()
                 if params is None:
@@ -2344,11 +2401,11 @@ class Parser(TokenReader):
         Returns a declarator or None
         """
         if abstract:
-            return self.parse_direct_abstract_declarator()
+            return self._parse_direct_abstract_declarator()
 
-        left = self.parse_declarator_parens()
+        left = self._parse_declarator_parens()
         if left is None:
-            left = self.parse_identifier()
+            left = self._parse_identifier()
         if left is None:
             return None
 
@@ -2369,7 +2426,7 @@ class Parser(TokenReader):
         """
         Returns a declarator or None
         """
-        star = self.parse_sign('*')
+        star = self._parse_sign('*')
         if star is None:
             return self.parse_direct_declarator(abstract)
         type_qualifiers = self.parse_type_qualifier_list()
@@ -2381,7 +2438,7 @@ class Parser(TokenReader):
     def parse_strings(self):
         strings = []
         while self.has_more:
-            token = self.parse_token('string')
+            token = self._parse_token('string')
             if token is None:
                 break
             strings.append(LiteralExpr(token))
@@ -2397,17 +2454,17 @@ class Parser(TokenReader):
         if token.kind in 'integer float character'.split():
             return token
         self.index = begin
-        return self.parse_identifier_token()
+        return self._parse_identifier_token()
 
     @backtrack
     def parse_paren_expression(self):
-        left_paren = self.parse_sign('(')
+        left_paren = self._parse_sign('(')
         if left_paren is None:
             return None
         expr = self.parse_expression()
         if expr is None:
             return None
-        return ParenExpr(left_paren, expr, self.expect_sign(')'))
+        return ParenExpr(left_paren, expr, self._expect_sign(')'))
 
     def parse_primary_expression(self):
         strings = self.parse_strings()
@@ -2420,45 +2477,45 @@ class Parser(TokenReader):
         return self.parse_paren_expression()
 
     def parse_name_designator(self):
-        dot = self.parse_sign('.')
+        dot = self._parse_sign('.')
         if dot is None:
             return None
-        name = self.parse_identifier()
+        name = self._parse_identifier()
         if name is None:
-            self.raise_syntax_error()
+            self._raise_syntax_error()
         return NameDesignatorExpr(dot, name)
 
     def parse_designator(self):
         name_des = self.parse_name_designator()
         if name_des is not None:
             return name_des
-        left_bracket = self.parse_sign('[')
+        left_bracket = self._parse_sign('[')
         if left_bracket is None:
             return None
         index = self.parse_constant_expression()
         if index is None:
-            self.raise_syntax_error()
-        right_bracket = self.parse_sign(']')
+            self._raise_syntax_error()
+        right_bracket = self._parse_sign(']')
         return IndexDesignatorExpr(left_bracket, index, right_bracket)
 
     def parse_designation(self):
         designator = self.parse_designator()
         if designator is None:
             return None
-        eq = self.expect_sign('=')
+        eq = self._expect_sign('=')
         right = self.parse_initializer()
         if right is None:
-            self.raise_syntax_error()
+            self._raise_syntax_error()
         return BinaryOperationExpr(designator, eq, right)
 
     def parse_initializer_list(self):
-        left_brace = self.parse_sign('{')
+        left_brace = self._parse_sign('{')
         if left_brace is None:
             return None
         l = []
         while True:
             if len(l):
-                comma = self.parse_sign(',')
+                comma = self._parse_sign(',')
                 if comma is None:
                     break
                 l.append(comma)
@@ -2466,9 +2523,9 @@ class Parser(TokenReader):
             if init is None:
                 init = self.parse_initializer()
                 if init is None:
-                    self.raise_syntax_error('Expected initializer')
+                    self._raise_syntax_error('Expected initializer')
             l.append(init)
-        right_brace = self.expect_sign('}')
+        right_brace = self._expect_sign('}')
         list_expr = CommaListExpr(l)
         return InitializerListExpr(left_brace, list_expr, right_brace)
 
@@ -2486,11 +2543,11 @@ class Parser(TokenReader):
         Returns a declarator or None
         """
         declarator = self.parse_declarator()
-        eq = self.parse_sign('=')
+        eq = self._parse_sign('=')
         if declarator is not None and eq is not None:
             initializer = self.parse_initializer()
             if initializer is None:
-                self.raise_syntax_error('Initializer expected')
+                self._raise_syntax_error('Initializer expected')
             return BinaryOperationExpr(declarator, eq, initializer)
         return declarator
 
@@ -2506,9 +2563,9 @@ class Parser(TokenReader):
                 if comma is None:
                     break
                 else:
-                    self.raise_syntax_error("Expected declarator after ','")
+                    self._raise_syntax_error("Expected declarator after ','")
             declarators.append(declarator)
-            comma = self.parse_sign(',')
+            comma = self._parse_sign(',')
             if comma is None:
                 break
             declarators.append(comma)
@@ -2519,7 +2576,7 @@ class Parser(TokenReader):
         Returns a TypeSpecifierExpr or None
         """
         kw_strings = 'inline noreturn'.split()
-        token = self.parse_keyword(kw_strings)
+        token = self._parse_keyword(kw_strings)
         if token is None:
             return None
         return TypeSpecifierExpr(token)
@@ -2529,7 +2586,7 @@ class Parser(TokenReader):
         Returns a TypeSpecifierExpr or None
         """
         kw_strings = 'typedef extern static auto register'.split()
-        token = self.parse_keyword(kw_strings)
+        token = self._parse_keyword(kw_strings)
         if token is None:
             return None
         return TypeSpecifierExpr(token)
@@ -2538,17 +2595,17 @@ class Parser(TokenReader):
         return 'void char short int long float double signed unsigned'.split()
 
     def parse_struct_or_union_specifier(self):
-        kw = self.parse_keyword('struct union'.split())
+        kw = self._parse_keyword('struct union'.split())
         if kw is None:
             return None
-        identifier = self.parse_identifier_token()
+        identifier = self._parse_identifier_token()
         compound = self.parse_compound_statement()
         if compound is not None:
             if len(compound.statements) > 0:
-                self.raise_syntax_error('Expected type name')
+                self._raise_syntax_error('Expected type name')
         if identifier is None and compound is None:
-            self.raise_syntax_error("Expected identifier or "
-                                    "'{}' after {!r}".format('{', kw.string))
+            self._raise_syntax_error("Expected identifier or "
+                                     "'{}' after {!r}".format('{', kw.string))
         return StructExpr(kw, identifier, compound)
         # TODO
 
@@ -2556,7 +2613,7 @@ class Parser(TokenReader):
         return self.parse_assignment_expression()
 
     def parse_enumerator_list(self):
-        left_brace = self.parse_sign('{')
+        left_brace = self._parse_sign('{')
         if left_brace is None:
             return None
         l = []
@@ -2565,23 +2622,23 @@ class Parser(TokenReader):
             if enumerator is None:
                 break
             l.append(enumerator)
-            comma = self.parse_sign(',')
+            comma = self._parse_sign(',')
             if comma is None:
                 break
             l.append(comma)
-        right_brace = self.expect_sign('}')
+        right_brace = self._expect_sign('}')
         list_expr = CommaListExpr(l, allow_trailing=True)
         return InitializerListExpr(left_brace, list_expr, right_brace)
 
     def parse_enum_specifier(self):
-        kw = self.parse_keyword(['enum'])
+        kw = self._parse_keyword(['enum'])
         if kw is None:
             return None
-        identifier = self.parse_identifier_token()
+        identifier = self._parse_identifier_token()
         body = self.parse_enumerator_list()
         if identifier is None and body is None:
-            self.raise_syntax_error("Expected identifier or "
-                                    "'{}' after {!r}".format('{', kw.string))
+            self._raise_syntax_error("Expected identifier or "
+                                     "'{}' after {!r}".format('{', kw.string))
         return EnumExpr(kw, identifier, body)
 
     @backtrack
@@ -2591,7 +2648,7 @@ class Parser(TokenReader):
         """
 
         if 'b' in allowed_type_specs:
-            kw = self.parse_keyword(self.get_type_specifiers_strings())
+            kw = self._parse_keyword(self.get_type_specifiers_strings())
             if kw is not None:
                 return TypeSpecifierExpr(kw)
 
@@ -2606,7 +2663,7 @@ class Parser(TokenReader):
         if enum is not None:
             return enum
 
-        token = self.parse_token('identifier')
+        token = self._parse_token('identifier')
         if token is not None and token.string in self.types:
             return TypeSpecifierExpr(token)
         return None
@@ -2616,7 +2673,7 @@ class Parser(TokenReader):
         Returns a TypeSpecifierExpr or None
         """
         kw_strings = ('const volatile '.split())
-        kw = self.parse_keyword(kw_strings)
+        kw = self._parse_keyword(kw_strings)
         return None if kw is None else TypeSpecifierExpr(kw)
 
     def parse_type_qualifier_list(self):
@@ -2718,12 +2775,12 @@ class Parser(TokenReader):
             self._in_typedef = True
         declarators = self.parse_init_declarator_list()
         self._in_typedef = False
-        semicolon = self.parse_sign(';')
+        semicolon = self._parse_sign(';')
         if semicolon is None:
             return None
         if type_expr.is_typedef:
             if len(declarators) == 0:
-                self.raise_syntax_error("Expected type name after 'typedef'")
+                self._raise_syntax_error("Expected type name after 'typedef'")
             for decl in declarators.children:
                 self._add_type_from_declarator(decl)
         return DeclarationExpr(type_expr, declarators, semicolon)
@@ -2741,7 +2798,7 @@ class Parser(TokenReader):
         args_commas = []
         while True:
             if len(args_commas) > 0:
-                comma = self.parse_sign(',')
+                comma = self._parse_sign(',')
                 if comma is None:
                     break
                 args_commas.append(comma)
@@ -2751,7 +2808,7 @@ class Parser(TokenReader):
                 if argument is None:
                     if len(args_commas) == 0:
                         break
-                    self.raise_syntax_error('Expected argument')
+                    self._raise_syntax_error('Expected argument')
             args_commas.append(argument)
         return CommaListExpr(args_commas)
 
@@ -2772,23 +2829,23 @@ class Parser(TokenReader):
             if left is None:
                 return None
         while True:
-            operator = self.parse_sign('[ ( ++ -- . ->'.split())
+            operator = self._parse_sign('[ ( ++ -- . ->'.split())
             if operator is None:
                 break
             if operator.string == '(':
                 args_commas = self.parse_argument_expression_list()
-                right_paren = self.expect_sign(')')
+                right_paren = self._expect_sign(')')
                 left = CallExpr(left, operator, args_commas, right_paren)
             elif operator.string == '[':
                 expr = self.parse_expression()
-                right_bracket = self.expect_sign(']')
+                right_bracket = self._expect_sign(']')
                 left = SubscriptExpr(left, operator, expr, right_bracket)
             elif operator.string in '++ --'.split():
                 left = UnaryOperationExpr(operator, left, postfix=True)
             elif operator.string in '. ->'.split():
-                identifier = self.parse_identifier()
+                identifier = self._parse_identifier()
                 if identifier is None:
-                    self.raise_syntax_error('Expected an identifier')
+                    self._raise_syntax_error('Expected an identifier')
                 left = BinaryOperationExpr(left, operator, identifier)
             else:
                 raise Exception()
@@ -2798,20 +2855,20 @@ class Parser(TokenReader):
         """
         Returns a token or None
         """
-        return self.parse_sign('& * + - ~ !'.split())
+        return self._parse_sign('& * + - ~ !'.split())
 
     def parse_sizeof(self):
-        sizeof = self.parse_keyword(['sizeof'])
+        sizeof = self._parse_keyword(['sizeof'])
         if sizeof is None:
             return None
         expr = self.parse_unary_expression()
         if expr is not None:
             return SizeofExpr(sizeof, expr)
-        left_paren = self.expect_sign('(')
+        left_paren = self._expect_sign('(')
         type_name = self.parse_type_name()
         if type_name is None:
-            self.raise_syntax_error('Expected type name')
-        right_paren = self.expect_sign(')')
+            self._raise_syntax_error('Expected type name')
+        right_paren = self._expect_sign(')')
         return SizeofExpr(sizeof,
                           ParenExpr(left_paren, type_name, right_paren))
 
@@ -2821,7 +2878,7 @@ class Parser(TokenReader):
             return sizeof
         op = self.parse_unary_operator()
         if op is None:
-            op = self.parse_sign('-- ++'.split())
+            op = self._parse_sign('-- ++'.split())
             if op is None:
                 return self.parse_postfix_expression()
             expr = self.parse_unary_expression()
@@ -2839,7 +2896,7 @@ class Parser(TokenReader):
             operators = operators.split()
         left = sub_function()
         while True:
-            op = self.parse_sign(operators)
+            op = self._parse_sign(operators)
             if op is None:
                 break
             left = BinaryOperationExpr(left, op, sub_function())
@@ -2847,13 +2904,13 @@ class Parser(TokenReader):
 
     @backtrack
     def parse_parenthesed_type_name(self):
-        left_paren = self.parse_sign('(')
+        left_paren = self._parse_sign('(')
         if left_paren is None:
             return None
         type_name = self.parse_type_name()
         if type_name is None:
             return None
-        right_paren = self.expect_sign(')')
+        right_paren = self._expect_sign(')')
         if right_paren is None:
             return None
         return ParenExpr(left_paren, type_name, right_paren)
@@ -2867,7 +2924,7 @@ class Parser(TokenReader):
             return None
         expr = self.parse_cast_expression()
         if expr is None:
-            return self.raise_syntax_error('Expected expression')
+            return self._raise_syntax_error('Expected expression')
         return CastExpr(parens, expr)
 
     def parse_multiplicative_expression(self):
@@ -2912,13 +2969,13 @@ class Parser(TokenReader):
 
     def parse_conditional_expression(self):
         left = self.parse_logical_or_expression()
-        quest = self.parse_sign('?')
+        quest = self._parse_sign('?')
         if quest is None:
             return left
         mid = self.parse_expression()
         if mid is None:
-            self.raise_syntax_error('Expected expression')
-        colon = self.expect_sign(':')
+            self._raise_syntax_error('Expected expression')
+        colon = self._expect_sign(':')
         right = self.parse_conditional_expression()
         return TernaryOperationExpr(left, quest, mid, colon, right)
 
@@ -2930,7 +2987,7 @@ class Parser(TokenReader):
         Returns an assignment operator or None
         """
         ops = '= *= /= %= += -= <<= >>= &= ^= |='.split()
-        return self.parse_sign(ops)
+        return self._parse_sign(ops)
 
     @backtrack
     def parse_assignment_expression_2(self):
@@ -2960,83 +3017,83 @@ class Parser(TokenReader):
         return self.parse_assignment_expression()
 
     def parse_expression_statement(self):
-        semicolon = self.parse_sign(';')
+        semicolon = self._parse_sign(';')
         if semicolon is not None:
             return StatementExpr(None, semicolon)
         expr = self.parse_expression()
         if expr is None:
             return None
-        return StatementExpr(expr, self.expect_sign(';'))
+        return StatementExpr(expr, self._expect_sign(';'))
 
     def parse_selection_statement(self):
-        switch_token = self.parse_keyword(['switch'])
+        switch_token = self._parse_keyword(['switch'])
         if switch_token is not None:
-            self.raise_syntax_error("The 'switch' statement is not "
-                                    "implemented")
+            self._raise_syntax_error("The 'switch' statement is not "
+                                     "implemented")
 
-        if_token = self.parse_keyword(['if'])
+        if_token = self._parse_keyword(['if'])
         if if_token is None:
             return None
-        left_paren = self.expect_sign('(')
+        left_paren = self._expect_sign('(')
         expr = self.parse_expression()
         if expr is None:
-            self.raise_syntax_error('Expected expression')
-        right_paren = self.expect_sign(')')
+            self._raise_syntax_error('Expected expression')
+        right_paren = self._expect_sign(')')
         statement = self.parse_statement()
         if statement is None:
-            self.raise_syntax_error('Expected statement')
+            self._raise_syntax_error('Expected statement')
 
         else_statement = None
-        else_token = self.parse_keyword(['else'])
+        else_token = self._parse_keyword(['else'])
         if else_token is not None:
             else_statement = self.parse_statement()
             if else_statement is None:
-                self.raise_syntax_error("Expected statement after 'else'")
+                self._raise_syntax_error("Expected statement after 'else'")
         return IfExpr(if_token,
                       ParenExpr(left_paren, expr, right_paren), statement,
                       else_token, else_statement)
 
     def parse_iteration_statement(self):
-        token = self.parse_keyword('do for'.split())
+        token = self._parse_keyword('do for'.split())
         if token is not None:
-            self.raise_syntax_error("'do' and 'for' statements are not "
-                                    "implemented")
-        while_token = self.parse_keyword('while'.split())
+            self._raise_syntax_error("'do' and 'for' statements are not "
+                                     "implemented")
+        while_token = self._parse_keyword('while'.split())
         if while_token is None:
             return None
-        left_paren = self.expect_sign('(')
+        left_paren = self._expect_sign('(')
         expr = self.parse_expression()
         if expr is None:
-            self.raise_syntax_error('Expected expression')
-        right_paren = self.expect_sign(')')
+            self._raise_syntax_error('Expected expression')
+        right_paren = self._expect_sign(')')
         statement = self.parse_statement()
         if statement is None:
-            self.raise_syntax_error('Expected statement')
+            self._raise_syntax_error('Expected statement')
         return WhileExpr(while_token,
                          ParenExpr(left_paren, expr, right_paren),
                          statement)
 
     def parse_return_statement(self):
-        return_token = self.parse_keyword(['return'])
+        return_token = self._parse_keyword(['return'])
         if return_token is None:
             return None
         expr = None
-        semicolon = self.parse_sign(';')
+        semicolon = self._parse_sign(';')
         if semicolon is None:
             expr = self.parse_expression()
             if expr is None:
-                self.raise_syntax_error('Expected expression')
-            semicolon = self.expect_sign(';')
+                self._raise_syntax_error('Expected expression')
+            semicolon = self._expect_sign(';')
         return StatementExpr(JumpExpr(return_token, expr), semicolon)
 
     def parse_jump_statement(self):
         r = self.parse_return_statement()
         if r is not None:
             return r
-        token = self.parse_keyword(['break', 'continue'])
+        token = self._parse_keyword(['break', 'continue'])
         if token is None:
             return None
-        semicolon = self.expect_sign(';')
+        semicolon = self._expect_sign(';')
         return StatementExpr(JumpExpr(token, None), semicolon)
 
     def parse_statement(self):
@@ -3067,12 +3124,12 @@ class Parser(TokenReader):
         return statements
 
     def parse_compound_statement(self):
-        left_brace = self.parse_sign('{')
+        left_brace = self._parse_sign('{')
         if left_brace is None:
             return None
         declarations = self.parse_declaration_list()
         statements = self.parse_statement_list()
-        right_brace = self.expect_sign('}')
+        right_brace = self._expect_sign('}')
         return CompoundExpr(left_brace, declarations, statements, right_brace)
 
     def parse_function_definition(self):
@@ -3081,10 +3138,10 @@ class Parser(TokenReader):
         if declarator is None:
             if type_expr is None:
                 return None
-            self.raise_syntax_error('Expected declarator')
+            self._raise_syntax_error('Expected declarator')
         compound = self.parse_compound_statement()
         if compound is None:
-            self.raise_syntax_error('Expected compound statement')
+            self._raise_syntax_error('Expected compound statement')
         return FunctionDefinitionExpr(type_expr, declarator, compound)
 
     def parse_external_declaration(self):
@@ -3099,7 +3156,7 @@ class Parser(TokenReader):
             decl = self.parse_external_declaration()
             if decl is None and self.has_more:
                 s = 'Unexpected {!r}'.format(self.next().string)
-                self.raise_syntax_error(s)
+                self._raise_syntax_error(s)
             if decl is not None:
                 declarations.append(decl)
         expr = TranslationUnitExpr(declarations)
