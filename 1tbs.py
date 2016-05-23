@@ -224,7 +224,7 @@ class AbstractIssue:
         return "{}: {}".format(self.position, self.message)
 
 
-class SyntaxError(Exception, AbstractIssue):
+class NSyntaxError(Exception, AbstractIssue):
     """
     Represents a syntax error.
     """
@@ -242,7 +242,7 @@ def raise_expected_string(expected_string, position):
     Raise a syntax error when `expected_string` is expected in
     a source file, but not present.
     """
-    raise SyntaxError("Expected '{}'".format(expected_string), position)
+    raise NSyntaxError("Expected '{}'".format(expected_string), position)
 
 
 KEYWORDS = '''
@@ -387,7 +387,7 @@ def check_directive(string, begin):
         if (re.match(system_include_pattern, string) is None and
                 re.match(local_include_pattern, string) is None):
             msg = "Invalid #include directive (was {!r})".format('#' + string)
-            raise SyntaxError(msg, begin)
+            raise NSyntaxError(msg, begin)
 
 
 def lex_token(source_string, file_name):
@@ -422,7 +422,7 @@ def lex_token(source_string, file_name):
         if kind == '__skip__':
             pass
         elif kind == '__mismatch__':
-            raise SyntaxError("{!r} unexpected".format(string), begin)
+            raise NSyntaxError("{!r} unexpected".format(string), begin)
         else:
             if kind == 'directive':
                 check_directive(string, begin)
@@ -495,17 +495,17 @@ class TestLexer(unittest.TestCase):
                             'end=<unknown file>:1:5>')
 
     def test_string_error(self):
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             lex('"abc')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             lex('"\n"')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             lex('"')
 
     def test_string_escape(self):
         self.assertTokenEqual(r'"\0"', 'string', r'"\0"')
         self.assertTokenEqual(r'"\n"', 'string', r'"\n"')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             lex(r'"\"')
 
     def test_character(self):
@@ -571,9 +571,9 @@ class TestLexer(unittest.TestCase):
                               'directive', '  #  include <a> ')
         self.assertTokenEqual('\n  #  include "a" \n ',
                               'directive', '  #  include "a" ')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             lex('#include "a>')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             lex('#include <a"')
 
 
@@ -805,6 +805,8 @@ def make_abstract_bracket_expr(class_name, signs, name):
     })
 
 
+# pylint: disable=invalid-name
+
 AbstractParenExpr = make_abstract_bracket_expr('AbstractParenExpr',
                                                '()', 'paren')
 
@@ -813,6 +815,7 @@ AbstractBracketExpr = make_abstract_bracket_expr('AbstractBracketExpr',
 
 AbstractBraceExpr = make_abstract_bracket_expr('AbstractBraceExpr',
                                                '{}', 'brace')
+# pylint: enable=invalid-name
 
 
 class AbstractTypeSpecifierExpr(Expr):
@@ -1966,7 +1969,7 @@ class Parser(TokenReader):
         parser._included_headers += self._included_headers
         try:
             parser.parse()
-        except SyntaxError as e:
+        except NSyntaxError as e:
             msg = e.message
             print("In file included from {}:".format(self.file_name))
             raise e
@@ -2034,7 +2037,7 @@ class Parser(TokenReader):
         return token
 
     def raise_syntax_error(self, message='Syntax error'):
-        raise SyntaxError(message, self.position)
+        raise NSyntaxError(message, self.position)
 
     def parse_token(self, kind, string_list=None):
         if isinstance(string_list, str):
@@ -3023,9 +3026,9 @@ class TestParser(unittest.TestCase):
         self.checkExpr('a.b')
         self.checkExpr('a->b')
         self.checkExpr('a->b.c')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             parse_expr('a.""')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             parse_expr('a->""')
 
     def test_precedence(self):
@@ -3092,7 +3095,7 @@ class TestParser(unittest.TestCase):
                        'int n;')
 
     def test_size_t(self):
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             parse('size_t n;')
         self.checkDecl('#include <stdlib.h>\n'
                        'size_t n;',
@@ -3105,7 +3108,7 @@ class TestParser(unittest.TestCase):
                        'size_t n;')
 
     def test_comment(self):
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             parse('// no C++ comment')
         self.checkDecl('/* This is a coment */', '')
         self.checkDecl('int /* hello */ n;', 'int n;')
@@ -3146,7 +3149,7 @@ class TestParser(unittest.TestCase):
                        'int a;\n'
                        '};')
 
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             parse('struct s {a + a;}')
 
     def test_compound_literal(self):
@@ -3171,7 +3174,7 @@ class TestParser(unittest.TestCase):
         self.checkDecl('typedef int a;\n\n'
                        'typedef int a;')
 
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             parse('a b;')
 
         self.checkDecl('typedef int (*a);\n\n'
