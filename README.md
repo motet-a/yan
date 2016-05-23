@@ -1,17 +1,17 @@
-# 1TBS — The One True Bocal Style checker
+# Yan — Yet another norminette
 
 **Work in progress**
 
-**1TBS** stands for "the one true Bocal style". This is a "norminette",
-a C brace style checker written in Python designed for the EPITECH style.
+**Yan** stands for "Yet another *norminette*". This is a C brace style
+checker written in Python designed for the EPITECH style.
 
 But unlike the "official" one, this style checker is not a buch of crappy
 regex getting so easily confused.
-The 1TBS checker is based on a carefully designed tokenizer and an
-authentic hand-written recursive descent parser.
+Yan is based on a carefully designed tokenizer and an authentic
+hand-written recursive descent parser.
 
-However, the 1TBS checker does not handle macros and preprocessor
-directives (except `#include`).
+However, Yan does not handle macros and preprocessor directives (except
+`#include`).
 
 
 
@@ -44,7 +44,7 @@ Currently:
 - **In a declaration, if the type is on the same line than the declarator**
 
 ```
-antoine@hp-blinux:~/cs/1tbs$ cat test.c
+$ cat test.c
 /*
 ** test.c for  in /home/antoine
 **
@@ -60,7 +60,7 @@ int main()
   int
     a;
 }
-antoine@hp-blinux:~/cs/1tbs$ ./1tbs.py test.c
+$ ./yan.py test.c
 test.c:13:3: 'int' is not on the same line than 'a'
 ```
 
@@ -87,7 +87,7 @@ in the parser. If you use one, it leads to a syntax error.
 
 ## Run the tests
 
-Use `python3 -m unittest 1tbs`.
+Use `python3 -m unittest yan`.
 
 
 
