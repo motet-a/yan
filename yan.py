@@ -2020,8 +2020,10 @@ class Parser(TokenReader):
     """
     A parser for the C language.
 
-    Grammar: http://www.lysator.liu.se/c/ANSI-C-grammar-y.html
+    The methods of this class reflect mostly the following grammar:
+    http://www.lysator.liu.se/c/ANSI-C-grammar-y.html
     """
+    # pylint: disable=invalid-name
 
     def __init__(self, tokens, include_dirs=None):
         if include_dirs is None:
@@ -2495,15 +2497,14 @@ class Parser(TokenReader):
         return InitializerListExpr(left_brace, list_expr, right_brace)
 
     def _parse_enum_specifier(self):
-        kw = self._parse_keyword(['enum'])
-        if kw is None:
+        enum_keyword = self._parse_keyword(['enum'])
+        if enum_keyword is None:
             return None
         identifier = self._parse_identifier_token()
         body = self._parse_enumerator_list()
         if identifier is None and body is None:
-            self._raise_syntax_error("Expected identifier or "
-                                     "'{}' after {!r}".format('{', kw.string))
-        return EnumExpr(kw, identifier, body)
+            self._raise_syntax_error("Expected identifier or '{' after 'enum'")
+        return EnumExpr(enum_keyword, identifier, body)
 
     @backtrack
     def _parse_type_specifier(self, allowed_type_specs='bc'):
@@ -2512,9 +2513,9 @@ class Parser(TokenReader):
         """
 
         if 'b' in allowed_type_specs:
-            kw = self._parse_keyword(self._get_type_specifiers_strings())
-            if kw is not None:
-                return TypeSpecifierExpr(kw)
+            kwd = self._parse_keyword(self._get_type_specifiers_strings())
+            if kwd is not None:
+                return TypeSpecifierExpr(kwd)
 
         if 'c' not in allowed_type_specs:
             return None
