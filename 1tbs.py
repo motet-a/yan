@@ -25,7 +25,6 @@ class Position:
         line: The 1-based line number
         column: The 1-based column number
         """
-
         self._file_name = file_name
         self._index = index
         self._line = line
@@ -34,42 +33,37 @@ class Position:
     @property
     def file_name(self):
         """
-        Returns the file path
+        Return the file path.
         """
-
         return self._file_name
 
     @property
     def index(self):
         """
-        Returns the index relative to the begin of the file
+        Return the index relative to the begin of the file.
         """
-
         return self._index
 
     @property
     def line(self):
         """
-        Returns the 1-based line number
+        Returns the 1-based line number.
         """
-
         return self._line
 
     @property
     def column(self):
         """
-        Returns the 1-based column number
+        Return the 1-based column number.
         """
-
         return self._column
 
     def __add__(self, other):
         """
-        Adds an integer to the index of this position
+        Add an integer to the index of this position.
 
-        Doesn't mutate this position and returns an integer.
+        Don't mutate this position and returns an integer.
         """
-
         return self.index + other
 
     def __sub__(self, other):
@@ -77,18 +71,16 @@ class Position:
         Subtract an integer or the index of another position from this
         position.
 
-        Doesn't mutate this position and returns an integer.
+        Don't mutate this position and returns an integer.
         """
-
         if isinstance(other, Position):
             other = other.index
         return self.index - other
 
     def __str__(self):
         """
-        Returns an user-friendly string describing this position
+        Return an user-friendly string describing this position.
         """
-
         return '{}:{}:{}'.format(
             self.file_name,
             self.line,
@@ -151,49 +143,43 @@ class Token:
     @property
     def kind(self):
         """
-        Returns a string describing the kind of the token
+        Return a string describing the kind of the token.
 
         TOKEN_KINDS contains the list of the different kinds.
         """
-
         return self._kind
 
     @property
     def string(self):
         """
-        Returns the string of the token
+        Return the string of the token.
         """
-
         return self._string
 
     @property
     def begin(self):
         """
-        Returns a Position describing the begin of the token
+        Return a Position describing the begin of the token.
         """
-
         return self._begin
 
     @property
     def end(self):
         """
-        Returns a Position describing the end of the token
+        Return a Position describing the end of the token.
         """
-
         return self._end
 
     def __str__(self):
         """
-        Returns the string of the token
+        Return the string of the token.
         """
-
         return self.string
 
     def __repr__(self):
         """
-        Returns a string describing the token for debugging purposes
+        Return a string describing the token for debugging purposes.
         """
-
         return '<Token kind={}, string={!r}, begin={}, end={}>'.format(
             self.kind, self.string, self.begin, self.end,
         )
@@ -201,7 +187,7 @@ class Token:
 
 class AbstractIssue:
     """
-    Represents a style issue reported by the checker
+    Represents a style issue reported by the checker.
     """
 
     def __init__(self, message, position):
@@ -209,7 +195,6 @@ class AbstractIssue:
         message: A string describing the issue
         position: The Position of the issue
         """
-
         assert isinstance(message, str)
         assert isinstance(position, Position)
         self._message = message
@@ -218,33 +203,30 @@ class AbstractIssue:
     @property
     def message(self):
         """
-        Returns a string describing the issue
+        Return a string describing the issue
 
-        Does not include the position of the issue.
+        Don't include the position of the issue.
         """
-
         return self._message
 
     @property
     def position(self):
         """
-        Returns the position of the issue
+        Return the position of the issue
         """
-
         return self._position
 
     def __str__(self):
         """
-        Returns an user-friendly string describing the issue and
+        Return an user-friendly string describing the issue and
         its position
         """
-
         return "{}: {}".format(self.position, self.message)
 
 
 class SyntaxError(Exception, AbstractIssue):
     """
-    Represents a syntax error
+    Represents a syntax error.
     """
 
     def __init__(self, message, position):
@@ -256,6 +238,10 @@ class SyntaxError(Exception, AbstractIssue):
 
 
 def raise_expected_string(expected_string, position):
+    """
+    Raise a syntax error when `expected_string` is expected in
+    a source file, but not present.
+    """
     raise SyntaxError("Expected '{}'".format(expected_string), position)
 
 
@@ -375,6 +361,11 @@ def get_lexer_spec():
 
 
 def get_lexer_regexp():
+    """
+    Return a big regexp string representing the whole lexer grammar.
+
+    Concat the strings returned by get_lexer_spec().
+    """
     def get_token_regex(pair):
         return '(?P<{}>{})'.format(*pair)
 
@@ -383,6 +374,12 @@ def get_lexer_regexp():
 
 
 def check_directive(string, begin):
+    """
+    Check if a preprocessor directive is valid.
+
+    string: A string of the directive.
+    begin: The position of the first character of the directive.
+    """
     string = string.strip()[1:].strip()
     if string.startswith('include'):
         system_include_pattern = r'^include\s+<[\w\./]+>$'
@@ -394,6 +391,13 @@ def check_directive(string, begin):
 
 
 def lex_token(source_string, file_name):
+    """
+    A generator to tokenize the given string.
+
+    Yields tokens.
+
+    file_name: The source file name, used to raise precise errors.
+    """
     position = Position(file_name)
     for match in re.finditer(get_lexer_regexp(), source_string):
         kind = match.lastgroup
@@ -432,6 +436,11 @@ def lex_token(source_string, file_name):
 
 
 def lex(string, file_name='<unknown file>'):
+    """
+    Tokenize a string.
+
+    Returns a list of tokens.
+    """
     l = []
     for token in lex_token(string, file_name):
         l.append(token)
@@ -439,6 +448,8 @@ def lex(string, file_name='<unknown file>'):
 
 
 class TestLexer(unittest.TestCase):
+    # pylint: disable=missing-docstring
+
     def assertLexEqual(self, source, expected):
         tokens = lex(source)
         self.assertEqual(''.join(repr(t) for t in tokens), expected)
@@ -574,15 +585,27 @@ class Expr:
     """
 
     def __init__(self, children):
-        self._children = children
+        self._children = children[:]
         for child in children:
             assert isinstance(child, Expr)
 
     @staticmethod
     def _split_camel_case(string):
+        """
+        Split the words in a camel-case-formatted string.
+
+        Returns a list of words in lowercase.
+
+        >>> Expr._split_camel_case('FooBar')
+        ['foo', 'bar']
+        """
         def find_uppercase_letter(string):
-            for i, c in enumerate(string):
-                if c.isupper():
+            """
+            Return the index of the first uppercase letter in a string,
+            or -1 if not found.
+            """
+            for i, char in enumerate(string):
+                if char.isupper():
                     return i
             return -1
 
@@ -596,43 +619,53 @@ class Expr:
 
     @staticmethod
     def _get_class_short_name(name):
+        """
+        Return a short name from an expression class name.
+
+        >>> Expr._get_class_short_name('FooBarExpr')
+        'foo_bar'
+        """
         name = name[:-len('Expr')]
-        l = Expr._split_camel_case(name)
-        return '_'.join(l)
+        words = Expr._split_camel_case(name)
+        return '_'.join(words)
 
     @staticmethod
     def _get_expr_classes():
+        """
+        Return a dict of the classes in this module whose name ends with
+        'Expr'.
+        """
         import inspect
         classes = inspect.getmembers(sys.modules[__name__], inspect.isclass)
-        d = {}
+        classes_dict = {}
         for name, cls in classes:
             if name.endswith('Expr') and name != 'Expr':
                 short_name = Expr._get_class_short_name(name)
-                d[short_name] = cls
-        d['expr'] = Expr
-        return d
+                classes_dict[short_name] = cls
+        classes_dict['expr'] = Expr
+        return classes_dict
 
     def select_classes(self, cls):
-        l = []
+        selected = []
         if isinstance(self, cls):
-            l.append(self)
+            selected.append(self)
         for child in self.children:
-            l += child.select_classes(cls)
-        return frozenset(l)
+            selected += child.select_classes(cls)
+        return frozenset(selected)
 
     @staticmethod
     def select_all(expressions, selectors_string):
-        l = []
+        selected = []
         for e in expressions:
-            l += e.select(selectors_string)
-        return frozenset(l)
+            selected += e.select(selectors_string)
+        return frozenset(selected)
 
     def select(self, selectors_string):
         """
-        Selects child nodes from a "selectors" string, a bit like
-        CSS selection.
+        Select child nodes from a selector string, a bit like CSS
+        selection.
 
-        Returns a set.
+        Return a set.
         """
         selectors = selectors_string.split()
         if len(selectors) == 0:
@@ -650,10 +683,17 @@ class Expr:
 
     @property
     def children(self):
+        """
+        Return the children expressions of this expression.
+        """
         return self._children[:]
 
     @property
     def tokens(self):
+        """
+        Return a list of the token of this expression, including the
+        tokens of the children.
+        """
         tokens = []
         for child in self.children:
             for t in child.tokens:
@@ -668,13 +708,22 @@ class Expr:
 
     @property
     def first_token(self):
+        """
+        Return the first token of this expression.
+        """
         return self.tokens[0]
 
     @property
     def last_token(self):
+        """
+        Return the last token of this expression.
+        """
         return self.tokens[-1]
 
     def __len__(self):
+        """
+        Return the length of the chidren expressions.
+        """
         return len(self.children)
 
     def __str__(self):
@@ -688,7 +737,7 @@ class Expr:
 
 class CommaListExpr(Expr):
     """
-    Reprensents a list of expressions separated by commas
+    Represents a list of expressions separated by commas.
     """
 
     def __init__(self, comma_separated_children, allow_trailing=False):
@@ -696,7 +745,6 @@ class CommaListExpr(Expr):
         comma_separated_children is a list of expressions
         separated by commas tokens.
         """
-
         if len(comma_separated_children) > 0 and not allow_trailing:
             assert len(comma_separated_children) % 2 == 1
 
@@ -726,11 +774,12 @@ class CommaListExpr(Expr):
 
 def make_abstract_bracket_expr(class_name, signs, name):
     """
-    Returns a new class
+    Return a new class representing a bracket pair (parentheses,
+    braces or whatever).
     """
     def __init__(self, left_bracket, right_bracket):
-        # pylint fails to analyse properly this function
-        # pylint disable=protected-access
+        # pylint fails to analyse properly this function.
+        # pylint: disable=protected-access
 
         assert isinstance(left_bracket, Token)
         assert left_bracket.kind == 'sign'
@@ -823,7 +872,7 @@ class StructExpr(AbstractTypeSpecifierExpr):
     @property
     def kind(self):
         """
-        Returns 'struct' or 'union'
+        Return the string 'struct' or 'union'
         """
         return self.struct.string
 
@@ -916,6 +965,10 @@ class EnumExpr(AbstractTypeSpecifierExpr):
 
 
 class TypeExpr(Expr):
+    """
+    Represents a type.
+    """
+
     def __init__(self, children):
         assert len(children) > 0
         Expr.__init__(self, children)
@@ -1117,10 +1170,16 @@ class FunctionDefinitionExpr(Expr):
 
 class TypeNameExpr(Expr):
     """
-    Used in casts and in sizeofs
+    A type name is a type with an optional declarator.
+
+    Used in casts and in sizeofs.
     """
 
-    def __init__(self, type_expr, declarator):
+    def __init__(self, type_expr, declarator=None):
+        """
+        type_expr: A TypeExpr.
+        declarator: A declarator or None.
+        """
         children = [type_expr]
         if declarator is not None:
             children.append(declarator)
@@ -1412,6 +1471,7 @@ class PointerExpr(Expr):
 
     This class cannot extend UnaryOperationExpr since `right` can be None.
     """
+
     def __init__(self, star, right, type_qualifiers):
         assert star.string == '*'
         Expr.__init__(self, [] if right is None else [right])
