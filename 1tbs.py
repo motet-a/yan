@@ -1059,10 +1059,10 @@ class StatementExpr(Expr):
 
     @property
     def tokens(self):
-        t = []
+        token = []
         if self.expression is not None:
-            t += self.expression.tokens
-        return t + [self.semicolon]
+            token += self.expression.tokens
+        return token + [self.semicolon]
 
     def __str__(self):
         """
@@ -1089,8 +1089,8 @@ class FunctionExpr(Expr):
 
     @property
     def tokens(self):
-        for t in self.parameters.tokens:
-            assert isinstance(t, Token)
+        for token in self.parameters.tokens:
+            assert isinstance(token, Token)
         return self.declarator.tokens + self.parameters.tokens
 
     def __str__(self):
@@ -1114,24 +1114,24 @@ class CompoundExpr(Expr, AbstractBraceExpr):
     @property
     def tokens(self):
         tokens = [self.left_brace]
-        for d in self.declarations:
-            tokens += d.tokens
-        for s in self.statements:
-            tokens += s.tokens
+        for decl in self.declarations:
+            tokens += decl.tokens
+        for statement in self.statements:
+            tokens += statement.tokens
         tokens.append(self.right_brace)
         return tokens
 
     def __str__(self):
-        s = '{\n'
+        string = '{\n'
         if len(self.declarations) > 0:
-            s += ''.join(str(d) for d in self.declarations)
+            string += ''.join(str(d) for d in self.declarations)
         if len(self.statements) > 0:
             if len(self.declarations) > 0:
-                s += '\n'
-            s += '\n'.join(str(s) for s in self.statements)
-            s += '\n'
-        s += '}'
-        return s
+                string += '\n'
+            string += '\n'.join(str(s) for s in self.statements)
+            string += '\n'
+        string += '}'
+        return string
 
 
 class InitializerListExpr(Expr, AbstractBraceExpr):
@@ -1199,12 +1199,12 @@ class FunctionDefinitionExpr(Expr):
         return self.function.parameters
 
     def __str__(self):
-        s = str(self.type_expr)
-        if len(s) > 0:
-            s += ' '
-        s += str(self.declarator)
-        s += '\n' + str(self.compound)
-        return s
+        string = str(self.type_expr)
+        if len(string) > 0:
+            string += ' '
+        string += str(self.declarator)
+        string += '\n' + str(self.compound)
+        return string
 
 
 class TypeNameExpr(Expr):
@@ -1228,12 +1228,12 @@ class TypeNameExpr(Expr):
         self.declarator = declarator
 
     def __str__(self):
-        s = str(self.type_expr)
+        string = str(self.type_expr)
         if self.declarator is not None:
             if not isinstance(self.declarator, SubscriptExpr):
-                s += ' '
-            s += str(self.declarator)
-        return s
+                string += ' '
+            string += str(self.declarator)
+        return string
 
 
 class CompoundLiteralExpr(Expr):
@@ -1318,11 +1318,11 @@ class DeclarationExpr(Expr):
         return tokens
 
     def __str__(self):
-        s = str(self.type_expr)
+        string = str(self.type_expr)
         declarators = str(self.declarators)
         if len(declarators) > 0:
-            s += ' ' + declarators
-        return s + ';\n'
+            string += ' ' + declarators
+        return string + ';\n'
 
 
 class BinaryOperationExpr(Expr):
@@ -1337,13 +1337,13 @@ class BinaryOperationExpr(Expr):
         return self.left.tokens + [self.operator] + self.right.tokens
 
     def __str__(self):
-        op = self.operator.string
-        if op in '. ->'.split():
-            return '{}{}{}'.format(self.left, op, self.right)
-        s = '{} {} {}'.format(self.left, op, self.right)
-        if op != '==' and op != '!=' and '=' in op:
-            return s
-        return '(' + s + ')'
+        operator = self.operator.string
+        if operator in '. ->'.split():
+            return '{}{}{}'.format(self.left, operator, self.right)
+        string = '{} {} {}'.format(self.left, operator, self.right)
+        if operator != '==' and operator != '!=' and '=' in operator:
+            return string
+        return '(' + string + ')'
 
 
 class TernaryOperationExpr(Expr):
@@ -1393,9 +1393,9 @@ class CallExpr(Expr, AbstractParenExpr):
                 [self.right_paren])
 
     def __str__(self):
-        s = str(self.expression)
-        s += '(' + str(self.arguments) + ')'
-        return s
+        string = str(self.expression)
+        string += '(' + str(self.arguments) + ')'
+        return string
 
 
 class SizeofExpr(Expr):
@@ -1410,11 +1410,11 @@ class SizeofExpr(Expr):
         return [self.sizeof] + self.expression.tokens
 
     def __str__(self):
-        s = 'sizeof'
+        string = 'sizeof'
         if not isinstance(self.expression, ParenExpr):
-            s += ' '
-        s += str(self.expression)
-        return s
+            string += ' '
+        string += str(self.expression)
+        return string
 
 
 class NameDesignatorExpr(Expr):
@@ -1485,23 +1485,23 @@ class SubscriptExpr(Expr, AbstractBracketExpr):
 
     @property
     def tokens(self):
-        l = []
+        tokens = []
         if self.expression is not None:
-            l += self.expression.tokens
-        l.append(self.left_bracket)
+            tokens += self.expression.tokens
+        tokens.append(self.left_bracket)
         if self.index is not None:
-            l += self.index.tokens
-        l.append(self.right_bracket)
-        return l
+            tokens += self.index.tokens
+        tokens.append(self.right_bracket)
+        return tokens
 
     def __str__(self):
-        s = ''
+        string = ''
         if self.expression is not None:
-            s += str(self.expression)
-        s += '['
+            string += str(self.expression)
+        string += '['
         if self.index is not None:
-            s += str(self.index)
-        return s + ']'
+            string += str(self.index)
+        return string + ']'
 
 
 class PointerExpr(Expr):
@@ -1527,14 +1527,14 @@ class PointerExpr(Expr):
 
     def __str__(self):
         # pylint: disable=no-member
-        s = '*'
-        s += ' '.join(q.string for q in self.type_qualifiers)
+        string = '*'
+        string += ' '.join(qual.string for qual in self.type_qualifiers)
         if len(self.type_qualifiers) > 0:
-            s += ' '
+            string += ' '
         if self.right is not None:
-            s += str(self.right)
-        s += ''
-        return s
+            string += str(self.right)
+        string += ''
+        return string
 
 
 class UnaryOperationExpr(Expr):
@@ -1613,20 +1613,20 @@ class StringsExpr(AbstractLiteralExpr):
     """
 
     def __init__(self, strings):
-        for s in strings:
-            assert isinstance(s, LiteralExpr)
-            assert s.kind == 'string'
+        for string in strings:
+            assert isinstance(string, LiteralExpr)
+            assert string.kind == 'string'
         super().__init__(strings)
 
     @property
     def tokens(self):
         tokens = []
-        for c in self.children:
-            tokens += c.tokens
+        for child in self.children:
+            tokens += child.tokens
         return tokens
 
     def __str__(self):
-        return ' '.join(str(c) for c in self.children)
+        return ' '.join(str(child) for child in self.children)
 
     def __repr__(self):
         return Expr.__repr__(self)
@@ -1652,9 +1652,9 @@ class WhileExpr(Expr):
         return tokens
 
     def __str__(self):
-        s = 'while ' + str(self.expression) + '\n'
-        s += str(self.statement)
-        return s
+        string = 'while ' + str(self.expression) + '\n'
+        string += str(self.statement)
+        return string
 
 
 class IfExpr(Expr):
@@ -1682,12 +1682,12 @@ class IfExpr(Expr):
         return tokens
 
     def __str__(self):
-        s = 'if ' + str(self.expression) + '\n'
-        s += str(self.statement)
+        string = 'if ' + str(self.expression) + '\n'
+        string += str(self.statement)
         if self.else_token is not None:
-            s += '\nelse\n'
-            s += str(self.else_statement)
-        return s
+            string += '\nelse\n'
+            string += str(self.else_statement)
+        return string
 
 
 class TranslationUnitExpr(Expr):
@@ -1716,16 +1716,16 @@ class JumpExpr(Expr):
 
     @property
     def tokens(self):
-        t = [self.keyword]
+        token = [self.keyword]
         if self.expression is not None:
-            t += self.expression.tokens
-        return t
+            token += self.expression.tokens
+        return token
 
     def __str__(self):
-        s = self.keyword.string
+        string = self.keyword.string
         if self.expression is not None:
-            s += ' ' + str(self.expression)
-        return s
+            string += ' ' + str(self.expression)
+        return string
 
 
 class ParenExpr(Expr, AbstractParenExpr):
@@ -2523,21 +2523,21 @@ class Parser(TokenReader):
         left_brace = self._parse_sign('{')
         if left_brace is None:
             return None
-        l = []
+        lst = []
         while True:
-            if len(l):
+            if len(lst):
                 comma = self._parse_sign(',')
                 if comma is None:
                     break
-                l.append(comma)
+                lst.append(comma)
             init = self.parse_designation()
             if init is None:
                 init = self.parse_initializer()
                 if init is None:
                     self._raise_syntax_error('Expected initializer')
-            l.append(init)
+            lst.append(init)
         right_brace = self._expect_sign('}')
-        list_expr = CommaListExpr(l)
+        list_expr = CommaListExpr(lst)
         return InitializerListExpr(left_brace, list_expr, right_brace)
 
     def parse_initializer(self):
@@ -2554,12 +2554,12 @@ class Parser(TokenReader):
         Returns a declarator or None
         """
         declarator = self.parse_declarator()
-        eq = self._parse_sign('=')
-        if declarator is not None and eq is not None:
+        equal = self._parse_sign('=')
+        if declarator is not None and equal is not None:
             initializer = self.parse_initializer()
             if initializer is None:
                 self._raise_syntax_error('Initializer expected')
-            return BinaryOperationExpr(declarator, eq, initializer)
+            return BinaryOperationExpr(declarator, equal, initializer)
         return declarator
 
     def parse_init_declarator_list(self):
@@ -2627,18 +2627,18 @@ class Parser(TokenReader):
         left_brace = self._parse_sign('{')
         if left_brace is None:
             return None
-        l = []
+        enums = []
         while True:
             enumerator = self.parse_enumerator()
             if enumerator is None:
                 break
-            l.append(enumerator)
+            enums.append(enumerator)
             comma = self._parse_sign(',')
             if comma is None:
                 break
-            l.append(comma)
+            enums.append(comma)
         right_brace = self._expect_sign('}')
-        list_expr = CommaListExpr(l, allow_trailing=True)
+        list_expr = CommaListExpr(enums, allow_trailing=True)
         return InitializerListExpr(left_brace, list_expr, right_brace)
 
     def parse_enum_specifier(self):
@@ -2887,15 +2887,15 @@ class Parser(TokenReader):
         sizeof = self.parse_sizeof()
         if sizeof is not None:
             return sizeof
-        op = self.parse_unary_operator()
-        if op is None:
-            op = self._parse_sign('-- ++'.split())
-            if op is None:
+        operator = self.parse_unary_operator()
+        if operator is None:
+            operator = self._parse_sign('-- ++'.split())
+            if operator is None:
                 return self.parse_postfix_expression()
             expr = self.parse_unary_expression()
-            return UnaryOperationExpr(op, expr)
+            return UnaryOperatorerationExpr(operator, expr)
         expr = self.parse_cast_expression()
-        return UnaryOperationExpr(op, expr)
+        return UnaryOperationExpr(operator, expr)
 
     def parse_binary_operation(self, operators, sub_function):
         """
@@ -2907,10 +2907,10 @@ class Parser(TokenReader):
             operators = operators.split()
         left = sub_function()
         while True:
-            op = self._parse_sign(operators)
-            if op is None:
+            operator = self._parse_sign(operators)
+            if operator is None:
                 break
-            left = BinaryOperationExpr(left, op, sub_function())
+            left = BinaryOperationExpr(left, operator, sub_function())
         return left
 
     @backtrack
@@ -3005,11 +3005,11 @@ class Parser(TokenReader):
         unary = self.parse_unary_expression()
         if unary is None:
             return None
-        op = self.parse_assignment_operator()
-        if op is None:
+        operator = self.parse_assignment_operator()
+        if operator is None:
             return None
         right = self.parse_assignment_expression()
-        return BinaryOperationExpr(unary, op, right)
+        return BinaryOperationExpr(unary, operator, right)
 
     def parse_assignment_expression(self):
         begin = self.index
@@ -3671,9 +3671,9 @@ class MarginChecker(StyleChecker):
         if left_end.line != right_begin.line:
             return
         if left_end.column + margin + 1 != right_begin.column:
-            m = 'Expected {} space(s) between {!r} and {!r}'.format(
+            msg = 'Expected {} space(s) between {!r} and {!r}'.format(
                 margin, left_token.string, right_token.string)
-            self.error(m, left_end)
+            self.error(msg, left_end)
 
 
 class BinaryOpSpaceChecker(MarginChecker):
@@ -3700,12 +3700,12 @@ class UnaryOpSpaceChecker(MarginChecker):
         for operation in unary_ops:
             if operation.postfix:
                 left_token = operation.right.last_token
-                op = operation.operator
-                self.check_margin(left_token, 0, op)
+                operator = operation.operator
+                self.check_margin(left_token, 0, operator)
             else:
                 right_token = operation.right.first_token
-                op = operation.operator
-                self.check_margin(op, 0, right_token)
+                operator = operation.operator
+                self.check_margin(operator, 0, right_token)
 
 
 class ReturnChecker(StyleChecker):
