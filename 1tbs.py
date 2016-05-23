@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+# pylint: disable=too-many-lines
+
+"""
+A C brace style checker designed for the "EPITECH norm".
+"""
+
 import argparse
 import os
 import re
@@ -8,7 +14,17 @@ import unittest
 
 
 class Position:
+    """
+    Represents a position in a file.
+    """
+
     def __init__(self, file_name, index=0, line=1, column=1):
+        """
+        file_name: The file path.
+        index: The index relative to the begin of the file
+        line: The 1-based line number
+        column: The 1-based column number
+        """
         self._file_name = file_name
         self._index = index
         self._line = line
@@ -16,31 +32,55 @@ class Position:
 
     @property
     def file_name(self):
+        """
+        Return the file path.
+        """
         return self._file_name
 
     @property
     def index(self):
+        """
+        Return the index relative to the begin of the file.
+        """
         return self._index
 
     @property
     def line(self):
+        """
+        Returns the 1-based line number.
+        """
         return self._line
 
     @property
     def column(self):
+        """
+        Return the 1-based column number.
+        """
         return self._column
 
     def __add__(self, other):
-        if isinstance(other, Position):
-            other = other.index
+        """
+        Add an integer to the index of this position.
+
+        Don't mutate this position and returns an integer.
+        """
         return self.index + other
 
     def __sub__(self, other):
+        """
+        Subtract an integer or the index of another position from this
+        position.
+
+        Don't mutate this position and returns an integer.
+        """
         if isinstance(other, Position):
             other = other.index
         return self.index - other
 
     def __str__(self):
+        """
+        Return an user-friendly string describing this position.
+        """
         return '{}:{}:{}'.format(
             self.file_name,
             self.line,
@@ -49,19 +89,19 @@ class Position:
 
 class TestPosition(unittest.TestCase):
     def test_begin_position(self):
-        p = Position('abcd')
-        self.assertEqual(p.file_name, 'abcd')
-        self.assertEqual(p.index, 0)
-        self.assertEqual(p.line, 1)
-        self.assertEqual(p.column, 1)
-        self.assertEqual(str(p), 'abcd:1:1')
+        pos = Position('abcd')
+        self.assertEqual(pos.file_name, 'abcd')
+        self.assertEqual(pos.index, 0)
+        self.assertEqual(pos.line, 1)
+        self.assertEqual(pos.column, 1)
+        self.assertEqual(str(pos), 'abcd:1:1')
 
     def test_position(self):
-        p = Position('abcd', 2, 3, 4)
-        self.assertEqual(p.index, 2)
-        self.assertEqual(p.line, 3)
-        self.assertEqual(p.column, 4)
-        self.assertEqual(str(p), 'abcd:3:4')
+        pos = Position('abcd', 2, 3, 4)
+        self.assertEqual(pos.index, 2)
+        self.assertEqual(pos.line, 3)
+        self.assertEqual(pos.column, 4)
+        self.assertEqual(str(pos), 'abcd:3:4')
 
 
 TOKEN_KINDS = [
@@ -75,7 +115,20 @@ TOKEN_KINDS = [
 
 
 class Token:
+    """
+    Represents a token
+    """
+
     def __init__(self, kind, string, begin, end):
+        """
+        kind: A string describing the kind of the token. It shoud be an
+        item of TOKEN_KINDS.
+        string: The string of the token. This is a part of the source,
+        its length should be equal to `end - begin`.
+        begin: A Position representing the begin of the token
+        end: A Position representing the end of the token
+        """
+
         assert isinstance(kind, str)
         assert kind in TOKEN_KINDS
         assert isinstance(string, str)
@@ -89,31 +142,59 @@ class Token:
 
     @property
     def kind(self):
+        """
+        Return a string describing the kind of the token.
+
+        TOKEN_KINDS contains the list of the different kinds.
+        """
         return self._kind
 
     @property
     def string(self):
+        """
+        Return the string of the token.
+        """
         return self._string
 
     @property
     def begin(self):
+        """
+        Return a Position describing the begin of the token.
+        """
         return self._begin
 
     @property
     def end(self):
+        """
+        Return a Position describing the end of the token.
+        """
         return self._end
 
     def __str__(self):
+        """
+        Return the string of the token.
+        """
         return self.string
 
     def __repr__(self):
+        """
+        Return a string describing the token for debugging purposes.
+        """
         return '<Token kind={}, string={!r}, begin={}, end={}>'.format(
             self.kind, self.string, self.begin, self.end,
         )
 
 
 class AbstractIssue:
+    """
+    Represents a style issue reported by the checker.
+    """
+
     def __init__(self, message, position):
+        """
+        message: A string describing the issue
+        position: The Position of the issue
+        """
         assert isinstance(message, str)
         assert isinstance(position, Position)
         self._message = message
@@ -121,17 +202,33 @@ class AbstractIssue:
 
     @property
     def message(self):
+        """
+        Return a string describing the issue
+
+        Don't include the position of the issue.
+        """
         return self._message
 
     @property
     def position(self):
+        """
+        Return the position of the issue
+        """
         return self._position
 
     def __str__(self):
+        """
+        Return an user-friendly string describing the issue and
+        its position
+        """
         return "{}: {}".format(self.position, self.message)
 
 
-class SyntaxError(Exception, AbstractIssue):
+class NSyntaxError(Exception, AbstractIssue):
+    """
+    Represents a syntax error.
+    """
+
     def __init__(self, message, position):
         Exception.__init__(self, message)
         AbstractIssue.__init__(self, message, position)
@@ -141,7 +238,11 @@ class SyntaxError(Exception, AbstractIssue):
 
 
 def raise_expected_string(expected_string, position):
-    raise SyntaxError("Expected '{}'".format(expected_string), position)
+    """
+    Raise a syntax error when `expected_string` is expected in
+    a source file, but not present.
+    """
+    raise NSyntaxError("Expected '{}'".format(expected_string), position)
 
 
 KEYWORDS = '''
@@ -218,10 +319,11 @@ def get_lexer_spec():
 
     This is quite unintelligible.
     """
+    # pylint: disable=bad-whitespace
 
     int_suffix = r'[uUlL]*'
     float_suffix = r'[fFlL]?'
-    e_suffix = '[Ee][+-]?\d+'
+    e_suffix = r'[Ee][+-]?\d+'
 
     hex_digit = r'[a-fA-F0-9]'
     hex_digits = hex_digit + '+'
@@ -260,6 +362,11 @@ def get_lexer_spec():
 
 
 def get_lexer_regexp():
+    """
+    Return a big regexp string representing the whole lexer grammar.
+
+    Concat the strings returned by get_lexer_spec().
+    """
     def get_token_regex(pair):
         return '(?P<{}>{})'.format(*pair)
 
@@ -268,6 +375,12 @@ def get_lexer_regexp():
 
 
 def check_directive(string, begin):
+    """
+    Check if a preprocessor directive is valid.
+
+    string: A string of the directive.
+    begin: The position of the first character of the directive.
+    """
     string = string.strip()[1:].strip()
     if string.startswith('include'):
         system_include_pattern = r'^include\s+<[\w\./]+>$'
@@ -275,34 +388,42 @@ def check_directive(string, begin):
         if (re.match(system_include_pattern, string) is None and
                 re.match(local_include_pattern, string) is None):
             msg = "Invalid #include directive (was {!r})".format('#' + string)
-            raise SyntaxError(msg, begin)
+            raise NSyntaxError(msg, begin)
 
 
 def lex_token(source_string, file_name):
+    """
+    A generator to tokenize the given string.
+
+    Yields tokens.
+
+    file_name: The source file name, used to raise precise errors.
+    """
     position = Position(file_name)
-    for mo in re.finditer(get_lexer_regexp(), source_string):
-        kind = mo.lastgroup
-        string = mo.group(kind)
-        assert len(string) == (mo.end() - mo.start())
-        begin = Position(file_name, mo.start(),
+    for match in re.finditer(get_lexer_regexp(), source_string):
+        kind = match.lastgroup
+        string = match.group(kind)
+        assert len(string) == (match.end() - match.start())
+        begin = Position(file_name, match.start(),
                          position.line, position.column)
-        end = Position(file_name, mo.end(),
+        end = Position(file_name, match.end(),
                        position.line, position.column + len(string) - 1)
         position = Position(file_name, end.index, end.line, end.column + 1)
 
         if kind == '__newline__':
-            position = Position(file_name, mo.end(), position.line + 1)
+            position = Position(file_name, match.end(), position.line + 1)
             continue
         elif kind == 'comment' and '\n' in string:
             end_line = position.line + string.count('\n')
             end_column = len(string) - string.rindex('\n')
-            end = Position(file_name, mo.end(), end_line, end_column)
-            position = Position(file_name, mo.end(), end_line, end_column + 1)
+            end = Position(file_name, match.end(), end_line, end_column)
+            position = Position(file_name,
+                                match.end(), end_line, end_column + 1)
 
         if kind == '__skip__':
             pass
         elif kind == '__mismatch__':
-            raise SyntaxError("{!r} unexpected".format(string), begin)
+            raise NSyntaxError("{!r} unexpected".format(string), begin)
         else:
             if kind == 'directive':
                 check_directive(string, begin)
@@ -316,6 +437,11 @@ def lex_token(source_string, file_name):
 
 
 def lex(string, file_name='<unknown file>'):
+    """
+    Tokenize a string.
+
+    Returns a list of tokens.
+    """
     l = []
     for token in lex_token(string, file_name):
         l.append(token)
@@ -323,6 +449,8 @@ def lex(string, file_name='<unknown file>'):
 
 
 class TestLexer(unittest.TestCase):
+    # pylint: disable=missing-docstring
+
     def assertLexEqual(self, source, expected):
         tokens = lex(source)
         self.assertEqual(''.join(repr(t) for t in tokens), expected)
@@ -368,17 +496,17 @@ class TestLexer(unittest.TestCase):
                             'end=<unknown file>:1:5>')
 
     def test_string_error(self):
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             lex('"abc')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             lex('"\n"')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             lex('"')
 
     def test_string_escape(self):
         self.assertTokenEqual(r'"\0"', 'string', r'"\0"')
         self.assertTokenEqual(r'"\n"', 'string', r'"\n"')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             lex(r'"\"')
 
     def test_character(self):
@@ -444,9 +572,9 @@ class TestLexer(unittest.TestCase):
                               'directive', '  #  include <a> ')
         self.assertTokenEqual('\n  #  include "a" \n ',
                               'directive', '  #  include "a" ')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             lex('#include "a>')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             lex('#include <a"')
 
 
@@ -458,15 +586,27 @@ class Expr:
     """
 
     def __init__(self, children):
-        self._children = children
+        self._children = children[:]
         for child in children:
             assert isinstance(child, Expr)
 
     @staticmethod
     def _split_camel_case(string):
+        """
+        Split the words in a camel-case-formatted string.
+
+        Returns a list of words in lowercase.
+
+        >>> Expr._split_camel_case('FooBar')
+        ['foo', 'bar']
+        """
         def find_uppercase_letter(string):
-            for i, c in enumerate(string):
-                if c.isupper():
+            """
+            Return the index of the first uppercase letter in a string,
+            or -1 if not found.
+            """
+            for i, char in enumerate(string):
+                if char.isupper():
                     return i
             return -1
 
@@ -480,43 +620,53 @@ class Expr:
 
     @staticmethod
     def _get_class_short_name(name):
+        """
+        Return a short name from an expression class name.
+
+        >>> Expr._get_class_short_name('FooBarExpr')
+        'foo_bar'
+        """
         name = name[:-len('Expr')]
-        l = Expr._split_camel_case(name)
-        return '_'.join(l)
+        words = Expr._split_camel_case(name)
+        return '_'.join(words)
 
     @staticmethod
     def _get_expr_classes():
+        """
+        Return a dict of the classes in this module whose name ends with
+        'Expr'.
+        """
         import inspect
         classes = inspect.getmembers(sys.modules[__name__], inspect.isclass)
-        d = {}
+        classes_dict = {}
         for name, cls in classes:
             if name.endswith('Expr') and name != 'Expr':
                 short_name = Expr._get_class_short_name(name)
-                d[short_name] = cls
-        d['expr'] = Expr
-        return d
+                classes_dict[short_name] = cls
+        classes_dict['expr'] = Expr
+        return classes_dict
 
     def select_classes(self, cls):
-        l = []
+        selected = []
         if isinstance(self, cls):
-            l.append(self)
+            selected.append(self)
         for child in self.children:
-            l += child.select_classes(cls)
-        return frozenset(l)
+            selected += child.select_classes(cls)
+        return frozenset(selected)
 
     @staticmethod
     def select_all(expressions, selectors_string):
-        l = []
+        selected = []
         for e in expressions:
-            l += e.select(selectors_string)
-        return frozenset(l)
+            selected += e.select(selectors_string)
+        return frozenset(selected)
 
     def select(self, selectors_string):
         """
-        Selects child nodes from a "selectors" string, a bit like
-        CSS selection.
+        Select child nodes from a selector string, a bit like CSS
+        selection.
 
-        Returns a set.
+        Return a set.
         """
         selectors = selectors_string.split()
         if len(selectors) == 0:
@@ -534,10 +684,17 @@ class Expr:
 
     @property
     def children(self):
+        """
+        Return the children expressions of this expression.
+        """
         return self._children[:]
 
     @property
     def tokens(self):
+        """
+        Return a list of the token of this expression, including the
+        tokens of the children.
+        """
         tokens = []
         for child in self.children:
             for t in child.tokens:
@@ -552,13 +709,22 @@ class Expr:
 
     @property
     def first_token(self):
+        """
+        Return the first token of this expression.
+        """
         return self.tokens[0]
 
     @property
     def last_token(self):
+        """
+        Return the last token of this expression.
+        """
         return self.tokens[-1]
 
     def __len__(self):
+        """
+        Return the length of the chidren expressions.
+        """
         return len(self.children)
 
     def __str__(self):
@@ -572,7 +738,7 @@ class Expr:
 
 class CommaListExpr(Expr):
     """
-    Reprensents a list of expressions separated by commas
+    Represents a list of expressions separated by commas.
     """
 
     def __init__(self, comma_separated_children, allow_trailing=False):
@@ -580,7 +746,6 @@ class CommaListExpr(Expr):
         comma_separated_children is a list of expressions
         separated by commas tokens.
         """
-
         if len(comma_separated_children) > 0 and not allow_trailing:
             assert len(comma_separated_children) % 2 == 1
 
@@ -608,11 +773,15 @@ class CommaListExpr(Expr):
         return ', '.join(str(child) for child in self.children)
 
 
-def makeAbstractBracketExpr(class_name, signs, name):
+def make_abstract_bracket_expr(class_name, signs, name):
     """
-    Returns a new class
+    Return a new class representing a bracket pair (parentheses,
+    braces or whatever).
     """
     def __init__(self, left_bracket, right_bracket):
+        # pylint fails to analyse properly this function.
+        # pylint: disable=protected-access
+
         assert isinstance(left_bracket, Token)
         assert left_bracket.kind == 'sign'
         assert left_bracket.string == signs[0]
@@ -637,14 +806,17 @@ def makeAbstractBracketExpr(class_name, signs, name):
     })
 
 
-AbstractParenExpr = makeAbstractBracketExpr('AbstractParenExpr',
-                                            '()', 'paren')
+# pylint: disable=invalid-name
 
-AbstractBracketExpr = makeAbstractBracketExpr('AbstractBracketExpr',
-                                              '[]', 'bracket')
+AbstractParenExpr = make_abstract_bracket_expr('AbstractParenExpr',
+                                               '()', 'paren')
 
-AbstractBraceExpr = makeAbstractBracketExpr('AbstractBraceExpr',
-                                            '{}', 'brace')
+AbstractBracketExpr = make_abstract_bracket_expr('AbstractBracketExpr',
+                                                 '[]', 'bracket')
+
+AbstractBraceExpr = make_abstract_bracket_expr('AbstractBraceExpr',
+                                               '{}', 'brace')
+# pylint: enable=invalid-name
 
 
 class AbstractTypeSpecifierExpr(Expr):
@@ -704,7 +876,7 @@ class StructExpr(AbstractTypeSpecifierExpr):
     @property
     def kind(self):
         """
-        Returns 'struct' or 'union'
+        Return the string 'struct' or 'union'
         """
         return self.struct.string
 
@@ -797,6 +969,10 @@ class EnumExpr(AbstractTypeSpecifierExpr):
 
 
 class TypeExpr(Expr):
+    """
+    Represents a type.
+    """
+
     def __init__(self, children):
         assert len(children) > 0
         Expr.__init__(self, children)
@@ -880,7 +1056,7 @@ class FunctionExpr(Expr):
     def tokens(self):
         for t in self.parameters.tokens:
             assert isinstance(t, Token)
-        return (self.declarator.tokens + self.parameters.tokens)
+        return self.declarator.tokens + self.parameters.tokens
 
     def __str__(self):
         return '{}{}'.format(self.declarator, self.parameters)
@@ -998,10 +1174,16 @@ class FunctionDefinitionExpr(Expr):
 
 class TypeNameExpr(Expr):
     """
-    Used in casts and in sizeofs
+    A type name is a type with an optional declarator.
+
+    Used in casts and in sizeofs.
     """
 
-    def __init__(self, type_expr, declarator):
+    def __init__(self, type_expr, declarator=None):
+        """
+        type_expr: A TypeExpr.
+        declarator: A declarator or None.
+        """
         children = [type_expr]
         if declarator is not None:
             children.append(declarator)
@@ -1293,8 +1475,9 @@ class PointerExpr(Expr):
 
     This class cannot extend UnaryOperationExpr since `right` can be None.
     """
+
     def __init__(self, star, right, type_qualifiers):
-        assert(star.string == '*')
+        assert star.string == '*'
         Expr.__init__(self, [] if right is None else [right])
         self.star = star
         self.right = right
@@ -1972,7 +2155,7 @@ class Parser(TokenReader):
         parser._included_files += self._included_files
         try:
             parser.parse()
-        except SyntaxError as e:
+        except NSyntaxError as e:
             msg = e.message
             print("In file included from {}:".format(self.file_name))
             raise e
@@ -2012,7 +2195,7 @@ class Parser(TokenReader):
         return TokenReader.next(self)
 
     def raise_syntax_error(self, message='Syntax error'):
-        raise SyntaxError(message, self.position)
+        raise NSyntaxError(message, self.position)
 
     def parse_token(self, kind, string_list=None):
         if isinstance(string_list, str):
@@ -2120,7 +2303,7 @@ class Parser(TokenReader):
         left_bracket = self.parse_sign('[')
         if left_bracket is not None:
             if not self.has_more:
-                raise_syntax_error("Expected ']'")
+                self.raise_syntax_error("Expected ']'")
             constant = self.parse_constant_expression()
             if constant is None:
                 right_bracket = self.parse_sign(']')
@@ -2313,8 +2496,7 @@ class Parser(TokenReader):
                 if comma is None:
                     break
                 else:
-                    self.raise_syntax_error("Expected declarator after ','",
-                                            comma.begin)
+                    self.raise_syntax_error("Expected declarator after ','")
             declarators.append(declarator)
             comma = self.parse_sign(',')
             if comma is None:
@@ -2580,24 +2762,24 @@ class Parser(TokenReader):
             if left is None:
                 return None
         while True:
-            op = self.parse_sign('[ ( ++ -- . ->'.split())
-            if op is None:
+            operator = self.parse_sign('[ ( ++ -- . ->'.split())
+            if operator is None:
                 break
-            if op.string == '(':
+            if operator.string == '(':
                 args_commas = self.parse_argument_expression_list()
                 right_paren = self.expect_sign(')')
-                left = CallExpr(left, op, args_commas, right_paren)
-            elif op.string == '[':
+                left = CallExpr(left, operator, args_commas, right_paren)
+            elif operator.string == '[':
                 expr = self.parse_expression()
                 right_bracket = self.expect_sign(']')
-                left = SubscriptExpr(left, op, expr, right_bracket)
-            elif op.string in '++ --'.split():
-                left = UnaryOperationExpr(op, left, postfix=True)
-            elif op.string in '. ->'.split():
+                left = SubscriptExpr(left, operator, expr, right_bracket)
+            elif operator.string in '++ --'.split():
+                left = UnaryOperationExpr(operator, left, postfix=True)
+            elif operator.string in '. ->'.split():
                 identifier = self.parse_identifier()
                 if identifier is None:
                     self.raise_syntax_error('Expected an identifier')
-                left = BinaryOperationExpr(left, op, identifier)
+                left = BinaryOperationExpr(left, operator, identifier)
             else:
                 raise Exception()
         return left
@@ -2848,21 +3030,21 @@ class Parser(TokenReader):
         return StatementExpr(JumpExpr(token, None), semicolon)
 
     def parse_statement(self):
-        s = self.parse_compound_statement()
-        if s is not None:
-            return s
-        s = self.parse_expression_statement()
-        if s is not None:
-            return s
-        s = self.parse_selection_statement()
-        if s is not None:
-            return s
-        s = self.parse_iteration_statement()
-        if s is not None:
-            return s
-        s = self.parse_jump_statement()
-        if s is not None:
-            return s
+        stmt = self.parse_compound_statement()
+        if stmt is not None:
+            return stmt
+        stmt = self.parse_expression_statement()
+        if stmt is not None:
+            return stmt
+        stmt = self.parse_selection_statement()
+        if stmt is not None:
+            return stmt
+        stmt = self.parse_iteration_statement()
+        if stmt is not None:
+            return stmt
+        stmt = self.parse_jump_statement()
+        if stmt is not None:
+            return stmt
         return None
 
     def parse_statement_list(self):
@@ -3013,9 +3195,9 @@ class TestParser(unittest.TestCase):
         self.checkExpr('a.b')
         self.checkExpr('a->b')
         self.checkExpr('a->b.c')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             parse_expr('a.""')
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             parse_expr('a->""')
 
     def test_precedence(self):
@@ -3082,7 +3264,7 @@ class TestParser(unittest.TestCase):
                        'int n;')
 
     def test_size_t(self):
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             parse('size_t n;')
         self.checkDecl('#include <stdlib.h>\n'
                        'size_t n;',
@@ -3095,7 +3277,7 @@ class TestParser(unittest.TestCase):
                        'size_t n;')
 
     def test_comment(self):
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             parse('// no C++ comment')
         self.checkDecl('/* This is a coment */', '')
         self.checkDecl('int /* hello */ n;', 'int n;')
@@ -3136,7 +3318,7 @@ class TestParser(unittest.TestCase):
                        'int a;\n'
                        '};')
 
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             parse('struct s {a + a;}')
 
     def test_compound_literal(self):
@@ -3161,7 +3343,7 @@ class TestParser(unittest.TestCase):
         self.checkDecl('typedef int a;\n\n'
                        'typedef int a;')
 
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(NSyntaxError):
             parse('a b;')
 
         self.checkDecl('typedef int (*a);\n\n'
@@ -3210,17 +3392,17 @@ class TestParser(unittest.TestCase):
         e = parse_expr('1 + 1')
         plus = e.select('binary_operation')
         assert len(plus) == 1
-        assert type(list(plus)[0]) is BinaryOperationExpr
+        assert isinstance(list(plus)[0], BinaryOperationExpr)
 
         one = e.select('literal')
         assert len(one) == 2
         for c in one:
-            assert type(c) is LiteralExpr
+            assert isinstance(c, LiteralExpr)
 
         one = e.select('binary_operation literal')
         assert len(one) == 2
         for c in one:
-            assert type(c) is LiteralExpr
+            assert isinstance(c, LiteralExpr)
 
         with self.assertRaises(ValueError):
             parse_expr('123').select('')
@@ -3667,6 +3849,10 @@ def print_issue(issue):
 
 
 class Program:
+    """
+    The main program
+    """
+
     def __init__(self, args):
         self.include_dirs = args.I
         if self.include_dirs is None:
