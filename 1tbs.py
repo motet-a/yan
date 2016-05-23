@@ -1788,6 +1788,10 @@ class TokenReader:
 
 
 class IncludedFile:
+    """
+    Represents a file included with an #include directive.
+    """
+
     def __init__(self, system, path):
         assert isinstance(system, bool)
         assert isinstance(path, str)
@@ -1795,8 +1799,8 @@ class IncludedFile:
         self._path = path
 
     def __eq__(self, other):
-        return (isinstance(other, self.__class__)
-                and self.__dict__ == other.__dict__)
+        return (isinstance(other, self.__class__) and
+                self.__dict__ == other.__dict__)
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -1821,6 +1825,10 @@ class TestIncludedFile(unittest.TestCase):
 
 
 class FileInclusion:
+    """
+    Represents an inclusion with an #include directive.
+    """
+
     def __init__(self, token_index, file):
         """
         token_index: The index of the removed inclusion in the
@@ -2099,6 +2107,8 @@ class Parser(TokenReader):
     """
 
     def __init__(self, tokens, include_dirs=None):
+        if include_dirs is None:
+            include_dirs = []
         self._source_tokens = tokens[:]
         self._include_dirs = include_dirs[:]
         pp_result = preprocess(tokens, include_dirs)
@@ -2176,7 +2186,7 @@ class Parser(TokenReader):
 
     def _expand_included_file(self, included_file):
         assert isinstance(included_file, IncludedFile)
-        #print('expand included file {!r}'.format(included_file.path))
+        # print('expand included file {!r}'.format(included_file.path))
         if included_file.system:
             self._expand_system_include(included_file)
         else:
