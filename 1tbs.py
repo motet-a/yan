@@ -442,10 +442,10 @@ def lex(string, file_name='<unknown file>'):
 
     Returns a list of tokens.
     """
-    l = []
+    tokens = []
     for token in lex_token(string, file_name):
-        l.append(token)
-    return l
+        tokens.append(token)
+    return tokens
 
 
 class TestLexer(unittest.TestCase):
@@ -657,8 +657,8 @@ class Expr:
     @staticmethod
     def select_all(expressions, selectors_string):
         selected = []
-        for e in expressions:
-            selected += e.select(selectors_string)
+        for expr in expressions:
+            selected += expr.select(selectors_string)
         return frozenset(selected)
 
     def select(self, selectors_string):
@@ -697,13 +697,8 @@ class Expr:
         """
         tokens = []
         for child in self.children:
-            for t in child.tokens:
-                if not isinstance(t, Token):
-                    print()
-                    print(repr(child))
-                    print(repr(child.tokens))
-                    print()
-                assert isinstance(t, Token)
+            for token in child.tokens:
+                assert isinstance(token, Token)
             tokens += child.tokens
         return tokens
 
@@ -732,8 +727,7 @@ class Expr:
 
     def __repr__(self):
         class_name = self.__class__.__name__
-        s = '<{} children={}>'.format(class_name, self.children)
-        return s
+        return '<{} children={}>'.format(class_name, self.children)
 
 
 class CommaListExpr(Expr):
@@ -993,20 +987,20 @@ class EnumExpr(AbstractTypeSpecifierExpr):
 
     @property
     def tokens(self):
-        t = [self.enum]
+        tokens = [self.enum]
         if self.identifier is not None:
-            t.append(self.identifier)
+            tokens.append(self.identifier)
         if self.body is not None:
-            t += self.body.tokens
-        return t
+            tokens += self.body.tokens
+        return tokens
 
     def __str__(self):
-        s = 'enum'
+        string = 'enum'
         if self.identifier is not None:
-            s += ' ' + self.identifier.string
+            string += ' ' + self.identifier.string
         if self.body is not None:
-            s += '\n' + str(self.body)
-        return s
+            string += '\n' + str(self.body)
+        return string
 
 
 class TypeExpr(Expr):
@@ -1532,6 +1526,7 @@ class PointerExpr(Expr):
         return tokens
 
     def __str__(self):
+        # pylint: disable=no-member
         s = '*'
         s += ' '.join(q.string for q in self.type_qualifiers)
         if len(self.type_qualifiers) > 0:
