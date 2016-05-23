@@ -1566,15 +1566,31 @@ class UnaryOperationExpr(Expr):
         return '({}{})'.format(self.operator.string, self.right)
 
 
+class AbstractLiteralExpr(Expr):
+    """
+    A literal expression.
+    """
+
+    def __init__(self, children):
+        super().__init__(children)
+
+
 class LiteralExpr(Expr):
+    """
+    A literal expression with one token.
+    """
+
     def __init__(self, token):
-        Expr.__init__(self, [])
+        super().__init__([])
         literals = 'identifier integer float string character'.split()
         assert token.kind in literals
         self.token = token
 
     @property
     def kind(self):
+        """
+        Return the kind of the underlying token.
+        """
         return self.token.kind
 
     @property
@@ -1583,6 +1599,9 @@ class LiteralExpr(Expr):
 
     @property
     def string(self):
+        """
+        Return the string of the underlying token.
+        """
         return self.token.string
 
     def __str__(self):
@@ -1593,24 +1612,23 @@ class LiteralExpr(Expr):
             self.kind, self.string)
 
 
-class StringsExpr(LiteralExpr):
+class StringsExpr(AbstractLiteralExpr):
+    """
+    A concatenation of multiple strings.
+    """
+
     def __init__(self, strings):
         for s in strings:
             assert isinstance(s, LiteralExpr)
             assert s.kind == 'string'
-        LiteralExpr.__init__(self, strings[0])
-        Expr.__init__(self, strings)
-
-    @property
-    def kind(self):
-        return 'string'
+        super().__init__(strings)
 
     @property
     def tokens(self):
-        l = []
+        tokens = []
         for c in self.children:
-            l += c.tokens
-        return l
+            tokens += c.tokens
+        return tokens
 
     def __str__(self):
         return ' '.join(str(c) for c in self.children)
@@ -1620,6 +1638,10 @@ class StringsExpr(LiteralExpr):
 
 
 class WhileExpr(Expr):
+    """
+    A `while` statement.
+    """
+
     def __init__(self, while_token, expression, statement):
         assert isinstance(expression, ParenExpr)
         Expr.__init__(self, [expression, statement])
@@ -2220,10 +2242,9 @@ class Parser(TokenReader):
         try:
             parser.parse()
         except NSyntaxError as e:
-            msg = e.message
             print("In file included from {}:".format(self.file_name))
             raise e
-        self.add_types(parser._types)
+        self.add_types(parser.types)
 
     def _expand_system_include(self, included_file):
         assert included_file.system
@@ -2292,10 +2313,10 @@ class Parser(TokenReader):
         return self._parse_token('sign', sign_list)
 
     def _expect_sign(self, sign_list):
-        id = self._parse_sign(sign_list)
-        if id is None:
+        sign = self._parse_sign(sign_list)
+        if sign is None:
             self._raise_syntax_error('Expected {!r}'.format(sign_list))
-        return id
+        return sign
 
     @backtrack
     def _parse_identifier_token(self):
@@ -2305,11 +2326,6 @@ class Parser(TokenReader):
         if token.string in self.types and not self._in_typedef:
             return None
         return token
-
-    def _expect_identifier_token(self):
-        id = self._parse_identifier_token()
-        if id is None:
-            self._raise_syntax_error('Expected identifier')
 
     def _parse_identifier(self):
         token = self._parse_identifier_token()
@@ -3395,7 +3411,6 @@ class TestParser(unittest.TestCase):
 
     def test_initializer_list(self):
         self.checkDecl('int a[] = {2, 3, 4};')
-        pass
 
     def test_designated_initializer(self):
         self.checkDecl('struct a a = {.a = 0, .b = 1};')
