@@ -3506,22 +3506,41 @@ class DeclarationChecker(StyleChecker):
             prev = child
 
     def check(self, tokens, expr):
-        structs = expr.select('struct')
-        for struct in structs:
+        for struct in expr.select('struct'):
             self.check_struct(struct)
-        decls = expr.select('declaration')
-        for decl in decls:
+        for decl in expr.select('declaration'):
             self.check_declaration(decl)
             self.check_new_line_constistency(decl)
-        types = expr.select('type')
-        for t in types:
+        for t in expr.select('type'):
             self.check_new_line_constistency(t)
-        funcs = expr.select('function_definition')
-        for func in funcs:
+        for func in expr.select('function_definition'):
             self.check_function_def(func)
-        decls = expr.select('function')
-        for decl in decls:
+        for decl in expr.select('function'):
             self.check_new_line_constistency(decl)
+
+
+class OneStatementByLineChecker(StyleChecker):
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler, options)
+
+    def _check_statements(self, a, b):
+        line_a = a.last_token.end.line
+        line_b = b.first_token.begin.line
+        if line_a == line_b:
+            self.error('Multiple statements a line', a.first_token.begin)
+
+    def _check_children(self, expr):
+        if isinstance(expr, (CompoundExpr, TranslationUnitExpr)):
+            previous = None
+            for child in expr.children:
+                if previous is not None:
+                    self._check_statements(previous, child)
+                previous = child
+        for child in expr.children:
+            self._check_children(child)
+
+    def check(self, tokens, expr):
+        self._check_children(expr)
 
 
 class IndentationChecker(StyleChecker):
@@ -3531,7 +3550,7 @@ class IndentationChecker(StyleChecker):
 
     def check_begin_indentation(self, lines, expr):
         if isinstance(expr, Expr):
-            token = expr.tokens[0]
+            token = expr.first_token
         else:
             token = expr
         begin = token.begin
@@ -3539,7 +3558,7 @@ class IndentationChecker(StyleChecker):
         self.check_indent(first_line, self.level, begin, 1)
 
     def check_end_indentation(self, lines, expr):
-        end = expr.tokens[-1].end
+        end = expr.last_token.end
         first_line = lines[end.line - 1]
         self.check_indent(first_line, self.level, end, 1)
 
@@ -3547,6 +3566,7 @@ class IndentationChecker(StyleChecker):
         indented_classes = (
             FunctionDefinitionExpr,
             CompoundExpr,
+            DeclarationExpr,
             StatementExpr,
             IfExpr,
             WhileExpr,
@@ -3664,6 +3684,7 @@ class Program:
             HeaderCommentChecker,
             IndentationChecker,
             LineLengthChecker,
+            OneStatementByLineChecker,
             ReturnChecker,
             TrailingWhitespaceChecker,
             UnaryOpSpaceChecker,
