@@ -95,11 +95,9 @@ Use `python3 -m unittest yan`.
 
 Not so much work.
 
-`enums` are not currently implemented, but it will added soon.
-
 Macros are not implemented, `#define`s are ignored. If you use a macro,
 it should look like a function call or an identifier, otherwise it leads
 to a syntax error.
 
-Structure and unions are not entirely implemeneted. Bit fields are
+Structure and unions are not entirely implemented. Bit fields are
 not implemented.
