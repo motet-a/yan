@@ -3479,7 +3479,6 @@ class DirectiveIndentationChecker(StyleChecker):
                     self.warn("Unexpected '#endif'", token.begin)
                 else:
                     level -= 1
-            #directive_level = self.get_indent_level(string, token.begin)
             local_level = level
             if name.startswith('else') or name.startswith('elif'):
                 local_level += 1
