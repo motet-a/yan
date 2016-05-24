@@ -3185,7 +3185,7 @@ class StyleChecker:
             string = string[1:]
 
         if column == -1:
-            column = position.index
+            column = position.column
         width = self.get_visible_width(indent_string, position, column)
         if width != expected_width:
             self.error('Bad indent level, expected {} space(s), got {}'.format(
@@ -3353,9 +3353,9 @@ class CommentChecker(StyleChecker):
                            comment.begin)
 
     def check(self, tokens, expr):
-        for t in tokens:
-            if t.kind == 'comment':
-                self.check_comment(t)
+        for token in tokens:
+            if token.kind == 'comment':
+                self.check_comment(token)
 
         funcs = expr.select('function_definition')
         for func in funcs:
@@ -3524,6 +3524,55 @@ class DeclarationChecker(StyleChecker):
             self.check_new_line_constistency(decl)
 
 
+class IndentationChecker(StyleChecker):
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler, options)
+        self.level = 0
+
+    def check_begin_indentation(self, lines, expr):
+        begin = expr.tokens[0].begin
+        first_line = lines[begin.line - 1]
+        self.check_indent(first_line, self.level, begin, 1)
+
+    def check_end_indentation(self, lines, expr):
+        end = expr.tokens[-1].end
+        first_line = lines[end.line - 1]
+        self.check_indent(first_line, self.level, end, 1)
+
+    def check_expr(self, lines, expr):
+        indented_classes = (
+            FunctionDefinitionExpr,
+            CompoundExpr,
+            StatementExpr,
+            IfExpr,
+            WhileExpr,
+        )
+        indentor_classes = (
+            CompoundExpr, IfExpr, WhileExpr,
+        )
+
+        if isinstance(expr, indented_classes):
+            self.check_begin_indentation(lines, expr)
+
+        if isinstance(expr, indentor_classes):
+            self.level += 2
+
+        for child in expr.children:
+            self.check_expr(lines, child)
+
+        if isinstance(expr, indentor_classes):
+            self.level -= 2
+
+        if isinstance(expr, CompoundExpr):
+            self.check_end_indentation(lines, expr)
+
+    def check_source(self, source, tokens, expr):
+        self.level = 0
+        self.check_expr(source.splitlines(), expr)
+        if self.level != 0:
+            self.warn('The indentation seems inconsistent', tokens[0].begin)
+
+
 def get_argument_parser():
     descr = 'Check your C programs against the "EPITECH norm".'
     parser = argparse.ArgumentParser(description=descr)
@@ -3633,6 +3682,7 @@ class Program:
             FunctionLengthChecker,
             FunctionCountChecker,
             HeaderCommentChecker,
+            IndentationChecker,
             LineLengthChecker,
             ReturnChecker,
             TrailingWhitespaceChecker,
@@ -3673,12 +3723,22 @@ class Program:
         else:
             print(string)
 
+    def _empty_file_error(self, path):
+        begin = Position(path)
+        print_issue(StyleIssue('Empty file, missing header comment', begin))
+
     def _check_file(self, path, include_dirs):
         if self.verbose:
             self._print_fg_color('black', path)
         with open(path) as source_file:
             source = source_file.read()
             tokens = lex(source, file_name=path)
+            if len(tokens) == 0:
+                self._empty_file_error(path)
+                # We must return here since some checkers fails if there
+                # is no token to check.
+                return
+
             root_expr = parse(tokens, include_dirs)
             for checker in self.checkers:
                 checker.check_source(source, tokens, root_expr)
