@@ -3111,29 +3111,32 @@ class StyleChecker:
         self.issue(StyleIssue(message, position))
 
     def check(self, tokens, expr):
-        raise Exception('Not implemented')
+        raise NotImplementedError()
+
+    def check_source(self, source, tokens, expr):
+        """
+        Like a StyleChecker, but accepts a string containing the source
+        code of the file
+        """
+        # pylint: disable=unused-argument
+        return self.check(tokens, expr)
 
 
-class SourceChecker(StyleChecker):
-    """
-    Like a StyleChecker, but accepts a string containing the source
-    code of the file
-    """
-    def __init__(self, issue_handler):
-        super().__init__(issue_handler)
-
-    def check(self, source, tokens, expr):
-        raise Exception('Not implemented')
-
-
-class LineChecker(SourceChecker):
+class LineChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
     def check_line(self, begin, line, end):
-        raise Exception()
+        """
+        This function is called on each line of the file.
 
-    def check(self, source, tokens, expr):
+        begin: The position of the first character of the line.
+        line: The string of the line.
+        end: The position of the last character of the line.
+        """
+        raise NotImplementedError()
+
+    def check_source(self, source, tokens, expr):
         lines = source.splitlines(True)
         index = 0
         file_name = tokens[0].begin.file_name
@@ -3587,10 +3590,7 @@ class Program:
             tokens = lex(source, file_name=path)
             root_expr = parse(tokens, include_dirs)
             for checker in self.checkers:
-                if isinstance(checker, SourceChecker):
-                    checker.check(source, tokens, root_expr)
-                else:
-                    checker.check(tokens, root_expr)
+                checker.check_source(source, tokens, root_expr)
 
 
 def main():
