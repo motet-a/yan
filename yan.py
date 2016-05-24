@@ -3188,8 +3188,8 @@ class StyleChecker:
             column = position.index
         width = self.get_visible_width(indent_string, position, column)
         if width != expected_width:
-            self.error('Bad indent level, expected {} space(s)'.format(
-                expected_width), position)
+            self.error('Bad indent level, expected {} space(s), got {}'.format(
+                expected_width, width), position)
 
     def check_margin(self, source, left_token, margin, right_token):
         """
@@ -3218,8 +3218,8 @@ class StyleChecker:
                 self.error(msg, left_end)
             return
 
+        assert(isinstance(margin, int))
         visible_margin = self.get_visible_width(margin_source, left_end)
-        print(repr(visible_margin))
         if visible_margin != margin:
             msg = 'Expected {!r} spaces or tabs between {!r} and {!r}'.format(
                 margin, left_token.string, right_token.string)
@@ -3375,7 +3375,7 @@ class BinaryOpSpaceChecker(StyleChecker):
             left_token = operation.left.last_token
             right_token = operation.right.first_token
             operator = operation.operator
-            margin = '' if operator.string in '. ->'.split() else ' '
+            margin = 0 if operator.string in '. ->'.split() else ' '
             self.check_margin(source, left_token, margin, operator)
             self.check_margin(source, operator, margin, right_token)
 
@@ -3449,23 +3449,6 @@ class DirectiveIndentationChecker(StyleChecker):
     def __init__(self, issue_handler, options):
         super().__init__(issue_handler, options)
 
-        """
-    def get_indent_string(self, string, position):
-        level = 0
-        for c in string:
-            if c == '\t':
-                self.warn("Tabulation after '#'", position)
-            elif c == ' ':
-                level += 1
-            else:
-                break
-        return level
-
-    def _bad_indent_level(self, current, expected, position):
-        self.error("Bad indent level (expected {} space(s), got {})".format(
-            expected, current), position)
-        """
-
     def check(self, tokens, expr):
         level = 0
         for token in tokens:
@@ -3481,7 +3464,7 @@ class DirectiveIndentationChecker(StyleChecker):
                     level -= 1
             local_level = level
             if name.startswith('else') or name.startswith('elif'):
-                local_level += 1
+                local_level -= 1
             self.check_indent(string, local_level, token.begin,
                               token.begin.column + 1)
             if name.startswith('if'):
