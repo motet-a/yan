@@ -3530,7 +3530,11 @@ class IndentationChecker(StyleChecker):
         self.level = 0
 
     def check_begin_indentation(self, lines, expr):
-        begin = expr.tokens[0].begin
+        if isinstance(expr, Expr):
+            token = expr.tokens[0]
+        else:
+            token = expr
+        begin = token.begin
         first_line = lines[begin.line - 1]
         self.check_indent(first_line, self.level, begin, 1)
 
@@ -3548,7 +3552,9 @@ class IndentationChecker(StyleChecker):
             WhileExpr,
         )
         indentor_classes = (
-            CompoundExpr, IfExpr, WhileExpr,
+            CompoundExpr,
+            IfExpr,
+            WhileExpr,
         )
 
         if isinstance(expr, indented_classes):
@@ -3557,8 +3563,21 @@ class IndentationChecker(StyleChecker):
         if isinstance(expr, indentor_classes):
             self.level += 2
 
-        for child in expr.children:
-            self.check_expr(lines, child)
+        if isinstance(expr, IfExpr):
+            self.check_expr(lines, expr.expression)
+            self.check_expr(lines, expr.statement)
+            if expr.else_statement is not None:
+                self.level -= 2
+                self.check_begin_indentation(lines, expr.else_token)
+                self.level += 2
+                if isinstance(expr.else_statement, IfExpr):
+                    self.level -= 2
+                self.check_expr(lines, expr.else_statement)
+                if isinstance(expr.else_statement, IfExpr):
+                    self.level += 2
+        else:
+            for child in expr.children:
+                self.check_expr(lines, child)
 
         if isinstance(expr, indentor_classes):
             self.level -= 2
