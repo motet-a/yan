@@ -3612,6 +3612,38 @@ class IndentationChecker(StyleChecker):
             self.warn('The indentation seems inconsistent', tokens[0].begin)
 
 
+class BraceChecker(StyleChecker):
+    """
+    Check compounds expressions only, don't check initializer lists.
+    """
+
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler, options)
+
+    @staticmethod
+    def _get_tokens_at_line(tokens, line):
+        result = []
+        for token in tokens:
+            if token.begin.line == line or token.end.line == line:
+                result.append(token)
+        return result
+
+    def _check_alone_in_line(self, tokens, token):
+        tokens = BraceChecker._get_tokens_at_line(tokens, token.begin.line)
+        assert token in tokens
+        if len(tokens) > 1:
+            self.error('{!r} not alone in its line'.format(token.string),
+                       token.begin)
+
+    def check(self, tokens, expr):
+        struct_compounds = expr.select('struct compound')
+        for compound in expr.select('compound'):
+            if compound in struct_compounds:
+                continue
+            self._check_alone_in_line(tokens, compound.left_brace)
+            self._check_alone_in_line(tokens, compound.right_brace)
+
+
 def get_argument_parser():
     descr = 'Check your C programs against the "EPITECH norm".'
     parser = argparse.ArgumentParser(description=descr)
@@ -3676,6 +3708,7 @@ class Program:
             self.include_dirs = []
         checkers_classes = [
             BinaryOpSpaceChecker,
+            BraceChecker,
             CommentChecker,
             DeclarationChecker,
             DirectiveIndentationChecker,
