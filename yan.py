@@ -1940,7 +1940,7 @@ def preprocess_include(token_index, directive_string, position, include_dirs):
         if quoted_name.startswith('<') and quoted_name.endswith('>'):
             return name, True
         elif quoted_name.startswith('"') and quoted_name.endswith('"'):
-            return name, True
+            return name, False
         else:
             raise SyntaxError('Invalid #include directive', position)
 
