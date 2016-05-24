@@ -3619,6 +3619,7 @@ def get_argument_parser():
     parser.add_argument('--tab-width',
                         action='store',
                         default=8,
+                        type=int,
                         help="tabulation width (defaults to 8)")
 
     return parser
