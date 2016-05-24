@@ -3608,10 +3608,6 @@ def get_argument_parser():
                         action='store_true',
                         help="verbose output")
 
-    parser.add_argument('--test',
-                        action='store_true',
-                        help='run the old tests')
-
     parser.add_argument('--header-username',
                         action='store_true',
                         help="check the username in header comments")
@@ -3623,42 +3619,6 @@ def get_argument_parser():
                         help="tabulation width (defaults to 8)")
 
     return parser
-
-
-def test():
-    # TODO: Write real tests
-    sources = [
-        'int a(int (*)());',
-
-        'int main(int argc, char **argv);',
-        'void f(void);',
-        'int (*f)(void);',
-        'int (*getFunc())(int, int (*b)(long));',
-        'int (*a)();',
-
-        'main() {lol();}',
-
-        '''
-        #include <unistd.h>
-
-        void print_char(char c)
-        {
-          write(STDOUT_FILENO, &c, 1);
-        }
-
-        void print_string(const char *string)
-        {
-          while (*string)
-            {
-              my_putchar(*string);
-              string++;
-            }
-        }
-        ''',
-    ]
-    for source in sources:
-        print(source)
-        print(parse(source))
 
 
 def print_escape_code(code, string, end):
@@ -3767,9 +3727,6 @@ class Program:
 def main():
     argument_parser = get_argument_parser()
     args = argument_parser.parse_args()
-    if args.test:
-        test()
-        return
 
     program = Program(args)
     for source_file in args.source_files:
