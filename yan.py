@@ -3097,8 +3097,18 @@ class StyleIssue(AbstractIssue):
 
 
 class StyleChecker:
-    def __init__(self, issue_handler):
+    def __init__(self, issue_handler, options):
         self._issue_handler = issue_handler
+        self._tab_width = options.tab_width
+        self._indent_chars = ' \t'
+
+    @property
+    def tab_width(self):
+        return self._tab_width
+
+    @property
+    def indent_chars(self):
+        return self._indent_chars
 
     def issue(self, issue):
         assert isinstance(issue, StyleIssue)
@@ -3121,10 +3131,104 @@ class StyleChecker:
         # pylint: disable=unused-argument
         return self.check(tokens, expr)
 
+    def check_same_line(self, token_a, token_b):
+        """
+        Check if the two given tokens are on the same line
+        """
+        assert isinstance(token_a, Token)
+        assert isinstance(token_b, Token)
+
+        if token_a.end.line != token_b.start.line:
+            msg = '{!r} is not on the same line than {!r}'.format(
+                token_a.string, token_b.string)
+            self.error(msg, token_a.end)
+
+    @staticmethod
+    def _pop_char(string):
+        if len(string) == 0:
+            raise Exception()
+        return string[0], string[1:]
+
+    def get_visible_width(self, indent_string, position, column=-1):
+        """
+        Returns the visible width in the given string.
+
+        string: A string constitued of spaces and tabs.
+        """
+        if column == -1:
+            column = position.column
+        begin = column
+        tabs = 0
+        spaces = 0
+        while len(indent_string) > 0:
+            char, indent_string = StyleChecker._pop_char(indent_string)
+            if char not in self.indent_chars:
+                raise Exception()
+            if char == '\t':
+                if spaces > 0:
+                    self.error('Unexpected tabulation after spaces', position)
+                tabs += 1
+                tab_visible_width = (self.tab_width -
+                                     (column - 1) % self.tab_width)
+                column += tab_visible_width
+            elif char == ' ':
+                spaces += 1
+                column += 1
+            else:
+                raise Exception()
+        return column - begin
+
+    def check_indent(self, string, expected_width, position, column=-1):
+        indent_string = ''
+        while string[0] in self.indent_chars:
+            indent_string += string[0]
+            string = string[1:]
+
+        if column == -1:
+            column = position.index
+        width = self.get_visible_width(indent_string, position, column)
+        if width != expected_width:
+            self.error('Bad indent level, expected {} space(s)'.format(
+                expected_width), position)
+
+    def check_margin(self, source, left_token, margin, right_token):
+        """
+        Checks the margin between two tokens.
+
+        If the given margin is a space, one space is expected.
+        If the given margin is an int, this number is the length of
+        the expected margin - it can be a mix of spaces an tabs.
+
+        If the given tokens are on different lines, no check is performed.
+        """
+        one_space = (margin == ' ')
+
+        left_end = left_token.end
+        right_begin = right_token.begin
+
+        if left_end.line != right_begin.line:
+            return
+
+        margin_source = source[left_end.index:right_begin.index]
+
+        if one_space:
+            if margin_source != ' ':
+                msg = 'Expected one space between {!r} and {!r}'.format(
+                    left_token.string, right_token.string)
+                self.error(msg, left_end)
+            return
+
+        visible_margin = self.get_visible_width(margin_source, left_end)
+        print(repr(visible_margin))
+        if visible_margin != margin:
+            msg = 'Expected {!r} spaces or tabs between {!r} and {!r}'.format(
+                margin, left_token.string, right_token.string)
+            self.error(msg, left_end)
+
 
 class LineChecker(StyleChecker):
-    def __init__(self, issue_handler):
-        super().__init__(issue_handler)
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler, options)
 
     def check_line(self, begin, line, end):
         """
@@ -3156,7 +3260,7 @@ class LineChecker(StyleChecker):
 
 class LineLengthChecker(LineChecker):
     def __init__(self, issue_handler, options):
-        super().__init__(issue_handler)
+        super().__init__(issue_handler, options)
 
     def check_line(self, begin, line, end):
         if len(line) > 80:
@@ -3165,7 +3269,7 @@ class LineLengthChecker(LineChecker):
 
 class TrailingWhitespaceChecker(LineChecker):
     def __init__(self, issue_handler, options):
-        super().__init__(issue_handler)
+        super().__init__(issue_handler, options)
 
     def check_line(self, begin, line, end):
         if line.rstrip() != line:
@@ -3175,7 +3279,7 @@ class TrailingWhitespaceChecker(LineChecker):
 class HeaderCommentChecker(StyleChecker):
     def __init__(self, issue_handler, options):
         self.username_check_enabled = options.header_username
-        super().__init__(issue_handler)
+        super().__init__(issue_handler, options)
 
     def check_username(self, login, position):
         if not self.username_check_enabled:
@@ -3218,7 +3322,7 @@ class HeaderCommentChecker(StyleChecker):
 
 class CommentChecker(StyleChecker):
     def __init__(self, issue_handler, options):
-        super().__init__(issue_handler)
+        super().__init__(issue_handler, options)
 
     def get_all_tokens_in_expr(self, tokens, expr):
         first = expr.first_token
@@ -3261,56 +3365,41 @@ class CommentChecker(StyleChecker):
                     self.error('Comment inside a function', token.begin)
 
 
-class MarginChecker(StyleChecker):
-    def __init__(self, issue_handler):
-        super().__init__(issue_handler)
-
-    def check_margin(self, left_token, margin, right_token):
-        left_end = left_token.end
-        right_begin = right_token.begin
-        if left_end.line != right_begin.line:
-            return
-        if left_end.column + margin + 1 != right_begin.column:
-            msg = 'Expected {} space(s) between {!r} and {!r}'.format(
-                margin, left_token.string, right_token.string)
-            self.error(msg, left_end)
-
-
-class BinaryOpSpaceChecker(MarginChecker):
+class BinaryOpSpaceChecker(StyleChecker):
     def __init__(self, issue_handler, options):
-        super().__init__(issue_handler)
+        super().__init__(issue_handler, options)
 
-    def check(self, tokens, expr):
+    def check_source(self, source, tokens, expr):
         bin_ops = expr.select('binary_operation')
         for operation in bin_ops:
             left_token = operation.left.last_token
             right_token = operation.right.first_token
-            op = operation.operator
-            margin = 0 if op.string in '. ->'.split() else 1
-            self.check_margin(left_token, margin, op)
-            self.check_margin(op, margin, right_token)
+            operator = operation.operator
+            margin = '' if operator.string in '. ->'.split() else ' '
+            self.check_margin(source, left_token, margin, operator)
+            self.check_margin(source, operator, margin, right_token)
 
 
-class UnaryOpSpaceChecker(MarginChecker):
+class UnaryOpSpaceChecker(StyleChecker):
     def __init__(self, issue_handler, options):
-        super().__init__(issue_handler)
+        super().__init__(issue_handler, options)
 
-    def check(self, tokens, expr):
+    def check_source(self, source, tokens, expr):
         unary_ops = expr.select('unary_operation')
         for operation in unary_ops:
             if operation.postfix:
                 left_token = operation.right.last_token
                 operator = operation.operator
-                self.check_margin(left_token, 0, operator)
+                self.check_margin(source, left_token, 0, operator)
             else:
                 right_token = operation.right.first_token
                 operator = operation.operator
-                self.check_margin(operator, 0, right_token)
+                self.check_margin(source, operator, 0, right_token)
 
 
 class ReturnChecker(StyleChecker):
     def __init__(self, issue_handler, options):
-        super().__init__(issue_handler)
+        super().__init__(issue_handler, options)
 
     def check_return(self, return_expr):
         if not isinstance(return_expr.expression, ParenExpr):
@@ -3327,7 +3416,7 @@ class ReturnChecker(StyleChecker):
 
 class FunctionLengthChecker(StyleChecker):
     def __init__(self, issue_handler, options):
-        super().__init__(issue_handler)
+        super().__init__(issue_handler, options)
 
     def check(self, tokens, expr):
         funcs = expr.select('function_definition')
@@ -3347,7 +3436,7 @@ class FunctionLengthChecker(StyleChecker):
 
 class FunctionCountChecker(StyleChecker):
     def __init__(self, issue_handler, options):
-        super().__init__(issue_handler)
+        super().__init__(issue_handler, options)
 
     def check(self, tokens, expr):
         funcs = expr.select('function_definition')
@@ -3358,9 +3447,10 @@ class FunctionCountChecker(StyleChecker):
 
 class DirectiveIndentationChecker(StyleChecker):
     def __init__(self, issue_handler, options):
-        super().__init__(issue_handler)
+        super().__init__(issue_handler, options)
 
-    def get_indent_level(self, string, position):
+        """
+    def get_indent_string(self, string, position):
         level = 0
         for c in string:
             if c == '\t':
@@ -3371,30 +3461,37 @@ class DirectiveIndentationChecker(StyleChecker):
                 break
         return level
 
-    def bad_indent_level(self, current, expected, position):
+    def _bad_indent_level(self, current, expected, position):
         self.error("Bad indent level (expected {} space(s), got {})".format(
             expected, current), position)
+        """
 
     def check(self, tokens, expr):
         level = 0
         for token in tokens:
-            if token.kind == 'directive':
-                string = token.string.strip()[1:]
-                name = string.strip()
-                if name.startswith('endif'):
+            if token.kind != 'directive':
+                continue
+
+            string = token.string.strip()[1:]
+            name = string.strip()
+            if name.startswith('endif'):
+                if level == 0:
+                    self.warn("Unexpected '#endif'", token.begin)
+                else:
                     level -= 1
-                directive_level = self.get_indent_level(string, token.begin)
-                if name.startswith('else') or name.startswith('elif'):
-                    directive_level += 1
-                if level != directive_level:
-                    self.bad_indent_level(directive_level, level, token.begin)
-                if name.startswith('if'):
-                    level += 1
+            #directive_level = self.get_indent_level(string, token.begin)
+            local_level = level
+            if name.startswith('else') or name.startswith('elif'):
+                local_level += 1
+            self.check_indent(string, local_level, token.begin,
+                              token.begin.column + 1)
+            if name.startswith('if'):
+                level += 1
 
 
 class DeclarationChecker(StyleChecker):
     def __init__(self, issue_handler, options):
-        super().__init__(issue_handler)
+        super().__init__(issue_handler, options)
 
     def check_same_line(self, left, right):
         assert isinstance(left, Token)
@@ -3452,16 +3549,28 @@ def get_argument_parser():
     parser.add_argument('source_files',
                         nargs='*',
                         help='source files or directories to check')
-    parser.add_argument('-I', action='append',
+
+    parser.add_argument('-I',
+                        action='append',
                         help="add a directory to the header search path")
-    parser.add_argument('--verbose', '-v', action='store_true',
+
+    parser.add_argument('--verbose', '-v',
+                        action='store_true',
                         help="verbose output")
 
-    parser.add_argument('--test', action='store_true',
+    parser.add_argument('--test',
+                        action='store_true',
                         help='run the old tests')
 
-    parser.add_argument('--header-username', action='store_true',
+    parser.add_argument('--header-username',
+                        action='store_true',
                         help="check the username in header comments")
+
+    parser.add_argument('--tab-width',
+                        action='store',
+                        default=8,
+                        help="tabulation width (defaults to 8)")
+
     return parser
 
 
