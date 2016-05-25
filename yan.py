@@ -3812,13 +3812,21 @@ class NameChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
         self._identifier_re = re.compile(r"^[a-z0-9_]*\Z", re.ASCII)
+        self._macro_re = re.compile(r"^[A-Z0-9_]*\Z", re.ASCII)
 
     def _is_valid_lowercase_name(self, name):
         return re.match(self._identifier_re, name)
 
+    def _is_valid_macro_name(self, name):
+        return re.match(self._macro_re, name)
+
     def _check_lowercase_name(self, name, position):
         if not self._is_valid_lowercase_name(name):
             self.error('{!r} is an invalid name'.format(name), position)
+
+    def _check_macro_name(self, name, position):
+        if not self._is_valid_macro_name(name):
+            self.error('{!r} is an invalid macro name'.format(name), position)
 
     def _check_lowercase_token(self, token):
         assert token.kind == 'identifier'
@@ -3838,6 +3846,8 @@ class NameChecker(StyleChecker):
             self._check_declarator(child, typedef, global_variable)
 
     def _check_struct(self, struct):
+        if struct.compound is None:
+            return
         prefix_map = {
             'struct': 's_',
             'union': 'u_',
@@ -3877,8 +3887,18 @@ class NameChecker(StyleChecker):
         for param in expr.select('parameter'):
             if param.declarator is not None:
                 self._check_declarator(param.declarator)
+
         for struct in expr.select('struct'):
             self._check_struct(struct)
+
+        for token in tokens:
+            if token.kind != 'directive':
+                continue
+            string = token.string[1:].strip()
+            if not string.startswith('define'):
+                continue
+            name = string.split()[1]
+            self._check_macro_name(name, token.begin)
 
 
 def get_argument_parser(checkers):

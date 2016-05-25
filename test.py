@@ -544,6 +544,7 @@ class TestFiles(unittest.TestCase):
                   ])
         test_file('bad_typedef_name.h', "Invalid type name")
         test_file('bad_typedef_struct_name.h', "Invalid type name")
+        test_file('bad_macro_name.h', "'bad' is an invalid macro name")
 
 
 if __name__ == '__main__':
