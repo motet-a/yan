@@ -429,25 +429,21 @@ def test_file(test_name, error_messages=None):
         error_messages = []
     if isinstance(error_messages, str):
         error_messages = [error_messages]
-    handled = False
 
     def handle_issue(issue):
-        nonlocal handled
-        handled = True
         if issue.message not in error_messages:
             exp = ' or '.join(repr(msg) for msg in error_messages)
             raise Exception('Expected {}, got {!r}'.format(exp,
                                                            issue.message))
-        if len(error_messages) == 0:
-            raise Exception()
+        error_messages.remove(issue.message)
 
     checkers = yan.create_checkers(handle_issue)
     file_path = 'test/' + test_name
     if not file_path.endswith('.h'):
         file_path += '.c'
     yan.check_file(file_path, checkers)
-    if len(error_messages) > 0 and not handled:
-        raise Exception()
+    if len(error_messages) > 0:
+        raise Exception('Expected error messages {}'.format(error_messages))
 
 
 class TestFiles(unittest.TestCase):
@@ -532,8 +528,23 @@ class TestFiles(unittest.TestCase):
                   'Bad indent level, expected 1 more space')
         test_file('indentation_invalid_if',
                   'Bad indent level, expected 5 fewer spaces')
-
         test_file('indentation_if')
+
+    def test_name(self):
+        test_file('bad_function_name', "'Bad' is an invalid name")
+        test_file('bad_function_name.h', "'Bad' is an invalid name")
+        test_file('bad_parameter_name', "'Bad' is an invalid name")
+        test_file('bad_struct_name.h', "Invalid struct name")
+        test_file('bad_union_name.h', "Invalid union name")
+        test_file('bad_variable_name', "'Bad' is an invalid name")
+        test_file('bad_global_variable_name',
+                  [
+                      'Invalid global variable name',
+                      'Declaration in source file',
+                  ])
+        test_file('bad_typedef_name.h', "Invalid type name")
+        test_file('bad_typedef_struct_name.h', "Invalid type name")
+
 
 if __name__ == '__main__':
     unittest.main()

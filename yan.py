@@ -871,7 +871,6 @@ class TypeExpr(Expr):
                     return True
         return False
 
-
     @property
     def is_typedef(self):
         return self.has_type_specifier('typedef')
@@ -3809,6 +3808,79 @@ class SourceFileChecker(StyleChecker):
                 self._check_declaration(child)
 
 
+class NameChecker(StyleChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+        self._identifier_re = re.compile(r"^[a-z0-9_]*\Z", re.ASCII)
+
+    def _is_valid_lowercase_name(self, name):
+        return re.match(self._identifier_re, name)
+
+    def _check_lowercase_name(self, name, position):
+        if not self._is_valid_lowercase_name(name):
+            self.error('{!r} is an invalid name'.format(name), position)
+
+    def _check_lowercase_token(self, token):
+        assert token.kind == 'identifier'
+        self._check_lowercase_name(token.string, token.begin)
+
+    def _check_declarator(self, decl, typedef=False, global_variable=False):
+        if isinstance(decl, LiteralExpr) and decl.kind == 'identifier':
+            self._check_lowercase_token(decl.token)
+            if typedef and not decl.string.startswith('t_'):
+                self.error('Invalid type name', decl.token.begin)
+            elif global_variable and not decl.string.startswith('g_'):
+                self.error('Invalid global variable name', decl.token.begin)
+            return
+        if isinstance(decl, FunctionExpr):
+            return
+        for child in decl.children:
+            self._check_declarator(child, typedef, global_variable)
+
+    def _check_struct(self, struct):
+        prefix_map = {
+            'struct': 's_',
+            'union': 'u_',
+        }
+        if struct.identifier is not None:
+            self._check_lowercase_token(struct.identifier)
+            prefix = prefix_map[struct.kind]
+            if not struct.identifier.string.startswith(prefix):
+                self.error('Invalid {} name'.format(struct.kind),
+                           struct.identifier.begin)
+
+    def _check_declaration(self, declaration, global_variable=False):
+        typedef = declaration.type_expr.is_typedef
+        if typedef:
+            global_variable = False
+        for declarator in declaration.declarators.children:
+            self._check_declarator(declarator,
+                                   typedef=typedef,
+                                   global_variable=global_variable)
+
+    def _check_file_name(self, tokens):
+        file_name = self.get_file_name(tokens)
+        cleaned = file_name.replace('.', '').replace('/', '')
+        cleaned = cleaned.replace('\\', '')
+        self._check_lowercase_name(cleaned, Position(file_name))
+
+    def check(self, tokens, expr):
+        self._check_file_name(tokens)
+
+        global_exprs = expr.children
+        for decl in expr.select('declaration'):
+            self._check_declaration(decl, decl in global_exprs)
+
+        for func in expr.select('function'):
+            self._check_declarator(func.declarator)
+
+        for param in expr.select('parameter'):
+            if param.declarator is not None:
+                self._check_declarator(param.declarator)
+        for struct in expr.select('struct'):
+            self._check_struct(struct)
+
+
 def get_argument_parser(checkers):
     descr = 'Check your C programs against the "EPITECH norm".'
     parser = argparse.ArgumentParser(description=descr)
@@ -3877,6 +3949,7 @@ def create_checkers(issue_handler):
         HeaderCommentChecker,
         IndentationChecker,
         LineLengthChecker,
+        NameChecker,
         OneStatementByLineChecker,
         ReturnChecker,
         SourceFileChecker,
