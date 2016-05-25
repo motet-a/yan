@@ -429,17 +429,25 @@ def test_file(test_name, error_messages=None):
         error_messages = []
     if isinstance(error_messages, str):
         error_messages = [error_messages]
+    handled = False
 
     def handle_issue(issue):
-        if len(error_messages) == 0:
-            raise Exception()
+        nonlocal handled
+        handled = True
         if issue.message not in error_messages:
             exp = ' or '.join(repr(msg) for msg in error_messages)
             raise Exception('Expected {}, got {!r}'.format(exp,
                                                            issue.message))
+        if len(error_messages) == 0:
+            raise Exception()
+
     checkers = yan.create_checkers(handle_issue)
-    file_path = 'test/' + test_name + '.c'
+    file_path = 'test/' + test_name
+    if not file_path.endswith('.h'):
+        file_path += '.c'
     yan.check_file(file_path, checkers)
+    if len(error_messages) > 0 and not handled:
+        raise Exception()
 
 
 class TestFiles(unittest.TestCase):
@@ -490,6 +498,21 @@ class TestFiles(unittest.TestCase):
         # This one raises just a warning, not an error
         test_file('25_line_function', "Long function (25 lines)")
 
+    def test_too_many_functions(self):
+        test_file('too_many_functions',
+                  "Too many functions in a file (more than 5)")
+
+    def test_header_file(self):
+        """
+        Only includes, defines, declarations, prototypes and macros are
+        allowed in header files
+        """
+        test_file('header_file_global_variable.h',
+                  'This declaration is forbidden in a header file')
+        test_file('header_file_extern_variable.h',
+                  'Global variable declaration')
+        test_file('header_file_function_def.h',
+                  'This is forbidden in a header file')
 
 if __name__ == '__main__':
     unittest.main()

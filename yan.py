@@ -864,13 +864,21 @@ class TypeExpr(Expr):
         assert len(children) > 0
         Expr.__init__(self, children)
 
-    @property
-    def is_typedef(self):
+    def has_type_specifier(self, type_specifier):
         for child in self.children:
             if isinstance(child, TypeSpecifierExpr):
-                if child.token.string == 'typedef':
+                if child.token.string == type_specifier:
                     return True
         return False
+
+
+    @property
+    def is_typedef(self):
+        return self.has_type_specifier('typedef')
+
+    @property
+    def is_extern(self):
+        return self.has_type_specifier('extern')
 
     def __str__(self):
         return ' '.join(str(c) for c in self.children)
@@ -3279,6 +3287,15 @@ class LineLengthChecker(LineChecker):
             self.error("Too long line (more than 80 characters)", end)
 
 
+class SupinfoChecker(LineChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+
+    def check_line(self, begin, line, end):
+        if 'supinfo' in line.lower():
+            self.warn("Advertisment for another school", begin)
+
+
 class TrailingWhitespaceChecker(LineChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
@@ -3480,7 +3497,7 @@ class FunctionCountChecker(StyleChecker):
     def check(self, tokens, expr):
         funcs = expr.select('function_definition')
         if len(funcs) > 5:
-            self.error('Too many functions (more than 5)',
+            self.error('Too many functions in a file (more than 5)',
                        expr.first_token.begin)
 
 
@@ -3686,14 +3703,18 @@ class CommaChecker(StyleChecker):
 
     def check_semicolon(self, source, tokens, i, token):
         prev_token, next_token = self._get_previous_and_next(tokens, i)
-        if prev_token is None or next_token is None:
-            self.error("Unexpected ';'", token.position)
+        if prev_token is None:
+            self.error("Unexpected ';'", token.begin)
+            return
         self.check_same_line(prev_token, token)
         if prev_token.string != 'return':
             # There is an exception for the 'return' statement,
             # but this is checked in the ReturnChecker rather than
             # here.
             self.check_margin(source, prev_token, 0, token)
+
+        if next_token is None:
+            return
         if token.end.line == next_token.begin.line:
             self.error("{!r} on the same line than the previous ';'".format(
                 next_token.string), next_token.begin)
@@ -3712,6 +3733,50 @@ class CommaChecker(StyleChecker):
                 self.check_comma(source, tokens, i, token)
             elif token.string == ';':
                 self.check_semicolon(source, tokens, i, token)
+
+
+class HeaderChecker(StyleChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+
+    @staticmethod
+    def get_file_name(tokens):
+        """
+        Return the name of the file where the tokens arise from.
+        """
+        if len(tokens) == 0:
+            return '<unknown file>'
+        return tokens[0].begin.file_name
+
+    def check_declarator(self, declarator):
+        if isinstance(declarator, (CommaListExpr, PointerExpr)):
+            for child in declarator.children:
+                self.check_declarator(child)
+            return
+        elif isinstance(declarator, FunctionExpr):
+            return
+        self.error('This declaration is forbidden in a header file',
+                   declarator.first_token.begin)
+
+    def check_declaration(self, declaration):
+        type_expr = declaration.type_expr
+        if type_expr.is_typedef:
+            return
+        elif type_expr.is_extern:
+            self.warn('Global variable declaration',
+                      declaration.first_token.begin)
+            return
+        self.check_declarator(declaration.declarators)
+
+    def check(self, tokens, expr):
+        if not self.get_file_name(tokens).endswith('.h'):
+            return
+        for child in expr.children:
+            if not isinstance(child, DeclarationExpr):
+                self.error('This is forbidden in a header file',
+                           child.first_token.begin)
+                continue
+            self.check_declaration(child)
 
 
 def get_argument_parser(checkers):
@@ -3778,11 +3843,13 @@ def create_checkers(issue_handler):
         DirectiveIndentationChecker,
         FunctionLengthChecker,
         FunctionCountChecker,
+        HeaderChecker,
         HeaderCommentChecker,
         IndentationChecker,
         LineLengthChecker,
         OneStatementByLineChecker,
         ReturnChecker,
+        SupinfoChecker,
         TrailingWhitespaceChecker,
         UnaryOpSpaceChecker,
     ]
