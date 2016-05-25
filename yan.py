@@ -3276,7 +3276,7 @@ class LineLengthChecker(LineChecker):
 
     def check_line(self, begin, line, end):
         if len(line) > 80:
-            self.error("Line too long (more than 80 characters)", end)
+            self.error("Too long line (more than 80 characters)", end)
 
 
 class TrailingWhitespaceChecker(LineChecker):
@@ -3555,7 +3555,8 @@ class OneStatementByLineChecker(StyleChecker):
         line_a = a.last_token.end.line
         line_b = b.first_token.begin.line
         if line_a == line_b:
-            self.error('Multiple statements a line', a.first_token.begin)
+            self.error('Multiple statements on the same line',
+                       a.first_token.begin)
 
     def _check_children(self, expr):
         if isinstance(expr, (CompoundExpr, TranslationUnitExpr)):

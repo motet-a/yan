@@ -424,13 +424,19 @@ class TestParser(unittest.TestCase):
             parse_expr('123').select('eiaueiuaeiua')
 
 
-def test_file(test_name, error_message=None):
+def test_file(test_name, error_messages=None):
+    if error_messages is None:
+        error_messages = []
+    if isinstance(error_messages, str):
+        error_messages = [error_messages]
+
     def handle_issue(issue):
-        if error_message is None:
+        if len(error_messages) == 0:
             raise Exception()
-        if error_message != issue.message:
-            raise Exception('Expected {!r}, got {!r}'.format(error_message,
-                                                             issue.message))
+        if issue.message not in error_messages:
+            exp = ' or '.join(repr(msg) for msg in error_messages)
+            raise Exception('Expected {}, got {!r}'.format(exp,
+                                                           issue.message))
     checkers = yan.create_checkers(handle_issue)
     file_path = 'test/' + test_name + '.c'
     yan.check_file(file_path, checkers)
@@ -458,6 +464,31 @@ class TestFiles(unittest.TestCase):
                   "Expected 0 spaces or tabs between '.' and 'n'")
         test_file('binary_op_space_4',
                   "Expected 0 spaces or tabs between 'a' and '->'")
+
+    def test_line_too_long(self):
+        test_file('line_too_long',
+                  "Too long line (more than 80 characters)")
+        test_file('line_too_long_in_comment',
+                  "Too long line (more than 80 characters)")
+
+    def test_multiple_statements_by_line(self):
+        test_file('many_statements_by_line_0',
+                  [
+                      "'return' on the same line than the previous ';'",
+                      "Multiple statements on the same line",
+                  ])
+        test_file('many_statements_by_line_1',
+                  [
+                      "'return' on the same line than the previous ';'",
+                      "Multiple statements on the same line",
+                  ])
+
+    def test_too_long_function(self):
+        test_file('26_line_function',
+                  "Too long function (more than 25 lines)")
+
+        # This one raises just a warning, not an error
+        test_file('25_line_function', "Long function (25 lines)")
 
 
 if __name__ == '__main__':
