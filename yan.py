@@ -3112,6 +3112,15 @@ class StyleChecker:
         self.tab_width = StyleChecker.DEFAULT_TAB_WIDTH
         self.indent_chars = ' \t'
 
+    @staticmethod
+    def get_file_name(tokens):
+        """
+        Return the name of the file where the tokens arise from.
+        """
+        if len(tokens) == 0:
+            return '<unknown file>'
+        return tokens[0].begin.file_name
+
     def create_argument_group(self, parser):
         pass
 
@@ -3208,8 +3217,12 @@ class StyleChecker:
             column = position.column
         width = self.get_visible_width(indent_string, position, column)
         if width != expected_width:
-            self.error('Bad indent level, expected {} space(s), got {}'.format(
-                expected_width, width), position)
+            diff = expected_width - width
+            msg = 'Bad indent level, expected {} {} space{}'.format(
+                abs(diff),
+                'more' if diff > 0 else 'fewer',
+                's' if abs(diff) > 1 else '')
+            self.error(msg, position)
 
     def check_margin(self, source, left_token, margin, right_token):
         """
@@ -3263,7 +3276,7 @@ class LineChecker(StyleChecker):
     def check_source(self, source, tokens, expr):
         lines = source.splitlines(True)
         index = 0
-        file_name = tokens[0].begin.file_name
+        file_name = self.get_file_name(tokens)
         for line_index, line_and_endl in enumerate(lines):
             line = line_and_endl.rstrip('\n\r')
             begin = Position(file_name,
@@ -3739,15 +3752,6 @@ class HeaderChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
-    @staticmethod
-    def get_file_name(tokens):
-        """
-        Return the name of the file where the tokens arise from.
-        """
-        if len(tokens) == 0:
-            return '<unknown file>'
-        return tokens[0].begin.file_name
-
     def check_declarator(self, declarator):
         if isinstance(declarator, (CommaListExpr, PointerExpr)):
             for child in declarator.children:
@@ -3777,6 +3781,32 @@ class HeaderChecker(StyleChecker):
                            child.first_token.begin)
                 continue
             self.check_declaration(child)
+
+
+class SourceFileChecker(StyleChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+
+    def _check_directive(self, directive):
+        string = directive.string[1:].strip()
+        name = string.split()[0]
+        if name in ('define', 'undef'):
+            self.warn('The most of the {!r} directives are forbidden '
+                      'in source files'.format('#' + name),
+                      directive.begin)
+
+    def _check_declaration(self, declaration):
+        self.warn('Declaration in source file', declaration.first_token.begin)
+
+    def check(self, tokens, expr):
+        if not self.get_file_name(tokens).endswith('.c'):
+            return
+        for token in tokens:
+            if token.kind == 'directive':
+                self._check_directive(token)
+        for child in expr.children:
+            if isinstance(child, DeclarationExpr):
+                self._check_declaration(child)
 
 
 def get_argument_parser(checkers):
@@ -3849,6 +3879,7 @@ def create_checkers(issue_handler):
         LineLengthChecker,
         OneStatementByLineChecker,
         ReturnChecker,
+        SourceFileChecker,
         SupinfoChecker,
         TrailingWhitespaceChecker,
         UnaryOpSpaceChecker,

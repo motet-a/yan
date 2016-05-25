@@ -456,6 +456,7 @@ class TestFiles(unittest.TestCase):
         test_file('comment_invalid_0',
                   "The comment lines should start with '**'")
         test_file('comment_invalid_1', "Expected a space after '**'")
+        test_file('comment_invalid_2', "A comment must start with '/*'")
 
     def test_return(self):
         test_file('return_no_paren', "Missing parentheses after 'return'")
@@ -513,6 +514,26 @@ class TestFiles(unittest.TestCase):
                   'Global variable declaration')
         test_file('header_file_function_def.h',
                   'This is forbidden in a header file')
+
+    def test_empty_file(self):
+        test_file('empty', 'Empty file, missing header comment')
+
+    def test_macro_in_source_file(self):
+        test_file('macro_in_source_file',
+                  "The most of the '#define' directives are forbidden in "
+                  "source files")
+
+    def test_function_decl_in_source_file(self):
+        test_file('function_decl_in_source_file',
+                  'Declaration in source file')
+
+    def test_indentation(self):
+        test_file('indentation_invalid_0',
+                  'Bad indent level, expected 1 more space')
+        test_file('indentation_invalid_if',
+                  'Bad indent level, expected 5 fewer spaces')
+
+        test_file('indentation_if')
 
 if __name__ == '__main__':
     unittest.main()
