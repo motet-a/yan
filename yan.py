@@ -3299,6 +3299,58 @@ class LineLengthChecker(LineChecker):
             self.error("Too long line (more than 80 characters)", end)
 
 
+class EmptyLineChecker(LineChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+        self._empty_previous_line = False
+
+    def check_line(self, begin, line, end):
+        empty = len(line.strip()) == 0
+        if empty:
+            if self._empty_previous_line:
+                self.error("Empty line", begin)
+        self._empty_previous_line = empty
+
+    def check_source(self, source, tokens, expr):
+        self._empty_previous_line = False
+        super().check_source(source, tokens, expr)
+
+
+class EmptyLineInFunctionChecker(StyleChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+
+    def _check_block(self, expr_list):
+        tokens = []
+        for expr in expr_list:
+            tokens += expr.tokens
+        line = tokens[0].end.line
+        for token in tokens:
+            if token.end.line > line + 1:
+                self.error('Unexpected empty line', token.begin)
+            line = token.end.line
+
+    def _check_compound(self, compound):
+        if len(compound.declarations) > 0:
+            self._check_block(compound.declarations)
+        if len(compound.statements) > 0:
+            self._check_block(compound.statements)
+        if len(compound.declarations) > 0 and len(compound.statements) > 0:
+            last_decl = compound.declarations[-1]
+            first_stmt = compound.statements[0]
+            decl_end = last_decl.last_token.end
+            stmt_begin = first_stmt.first_token.begin
+            if decl_end.line + 1 == stmt_begin.line:
+                self.error('Expected empty line between declarations and '
+                           'statements', decl_end)
+
+    def check(self, tokens, expr):
+        for function in expr.select('function_definition'):
+            pass
+        for compound in expr.select('compound'):
+            self._check_compound(compound)
+
+
 class SupinfoChecker(LineChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
@@ -3898,6 +3950,8 @@ class NameChecker(StyleChecker):
             if not string.startswith('define'):
                 continue
             name = string.split()[1]
+            if '(' in name:
+                name = name[:name.index('(')]
             self._check_macro_name(name, token.begin)
 
 
@@ -3963,6 +4017,8 @@ def create_checkers(issue_handler):
         CommentChecker,
         DeclarationChecker,
         DirectiveIndentationChecker,
+        EmptyLineChecker,
+        EmptyLineInFunctionChecker,
         FunctionLengthChecker,
         FunctionCountChecker,
         HeaderChecker,
