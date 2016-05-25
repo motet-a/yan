@@ -3761,6 +3761,7 @@ class Program:
     """
 
     def __init__(self, args):
+        self._issues = []
         self.include_dirs = args.I
         if self.include_dirs is None:
             self.include_dirs = []
@@ -3783,7 +3784,23 @@ class Program:
         ]
         self.verbose = args.verbose
         self.colors = os.isatty(sys.stdout.fileno())
-        self.checkers = [c(print_issue, args) for c in checkers_classes]
+        self.checkers = [c(self._add_issue, args) for c in checkers_classes]
+
+    def _add_issue(self, issue):
+        assert isinstance(issue, StyleIssue)
+        self._issues.append(issue)
+
+    def print_issues(self):
+        for issue in self.issues:
+            print_issue(issue)
+
+    @property
+    def issues(self):
+        return self._issues[:]
+
+    def check(self, path_list):
+        for path in path_list:
+            self.check_file_or_dir(path)
 
     def check_file_or_dir(self, path, include_dirs=None):
         if include_dirs is None:
@@ -3842,8 +3859,9 @@ def main():
     args = argument_parser.parse_args()
 
     program = Program(args)
-    for source_file in args.source_files:
-        program.check_file_or_dir(source_file)
+    program.check(args.source_files)
+    program.print_issues()
+    sys.exit(0 if len(program.issues) == 0 else 1)
 
 
 if __name__ == '__main__':
