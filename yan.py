@@ -3097,18 +3097,22 @@ class StyleIssue(AbstractIssue):
 
 
 class StyleChecker:
-    def __init__(self, issue_handler, options):
+    DEFAULT_TAB_WIDTH = 8
+
+    def __init__(self, issue_handler):
         self._issue_handler = issue_handler
-        self._tab_width = options.tab_width
-        self._indent_chars = ' \t'
+        self.tab_width = StyleChecker.DEFAULT_TAB_WIDTH
+        self.indent_chars = ' \t'
 
-    @property
-    def tab_width(self):
-        return self._tab_width
+    def create_argument_group(self, parser):
+        pass
 
-    @property
-    def indent_chars(self):
-        return self._indent_chars
+    def configure_all(self, options):
+        self.tab_width = options.width
+        self.configure(options)
+
+    def configure(self, options):
+        pass
 
     def issue(self, issue):
         assert isinstance(issue, StyleIssue)
@@ -3235,8 +3239,8 @@ class StyleChecker:
 
 
 class LineChecker(StyleChecker):
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     def check_line(self, begin, line, end):
         """
@@ -3267,8 +3271,8 @@ class LineChecker(StyleChecker):
 
 
 class LineLengthChecker(LineChecker):
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     def check_line(self, begin, line, end):
         if len(line) > 80:
@@ -3276,8 +3280,8 @@ class LineLengthChecker(LineChecker):
 
 
 class TrailingWhitespaceChecker(LineChecker):
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     def check_line(self, begin, line, end):
         if line.rstrip() != line:
@@ -3285,9 +3289,19 @@ class TrailingWhitespaceChecker(LineChecker):
 
 
 class HeaderCommentChecker(StyleChecker):
-    def __init__(self, issue_handler, options):
+    def __init__(self, issue_handler):
+        self.username_check_enabled = False
+        super().__init__(issue_handler)
+
+    def configure(self, options):
         self.username_check_enabled = options.header_username
-        super().__init__(issue_handler, options)
+
+    def create_argument_group(self, parser):
+        group = parser.add_argument_group('Header comments')
+        group.add_argument('--header-username',
+                           action='store_true',
+                           help="check the username in header comments")
+        return group
 
     def check_username(self, login, position):
         if not self.username_check_enabled:
@@ -3329,8 +3343,8 @@ class HeaderCommentChecker(StyleChecker):
 
 
 class CommentChecker(StyleChecker):
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     def get_all_tokens_in_expr(self, tokens, expr):
         first = expr.first_token
@@ -3374,8 +3388,8 @@ class CommentChecker(StyleChecker):
 
 
 class BinaryOpSpaceChecker(StyleChecker):
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     def check_source(self, source, tokens, expr):
         bin_ops = expr.select('binary_operation')
@@ -3389,8 +3403,8 @@ class BinaryOpSpaceChecker(StyleChecker):
 
 
 class UnaryOpSpaceChecker(StyleChecker):
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     def check_source(self, source, tokens, expr):
         unary_ops = expr.select('unary_operation')
@@ -3410,8 +3424,8 @@ class ReturnChecker(StyleChecker):
     Check for parentheses after 'return'.
     """
 
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     def check_return(self, source, statement_expr):
         return_expr = statement_expr.expression
@@ -3422,7 +3436,7 @@ class ReturnChecker(StyleChecker):
                               statement_expr.semicolon)
             return
         if not isinstance(return_expr.expression, ParenExpr):
-            self.error("No paretheses after 'return'",
+            self.error("Missing parentheses after 'return'",
                        return_expr.keyword.end)
             return
         left_paren = return_expr.expression.left_paren
@@ -3432,19 +3446,13 @@ class ReturnChecker(StyleChecker):
     def check_source(self, source, tokens, expr):
         for statement in expr.select('statement'):
             if (isinstance(statement.expression, JumpExpr) and
-                statement.expression.keyword.string == 'return'):
+                    statement.expression.keyword.string == 'return'):
                 self.check_return(source, statement)
-        """
-        returns = expr.select('')
-        for return_expr in returns:
-            if return_expr.keyword.string == 'return':
-                if return_expr.expression is not None:
-                    self.check_return(return_expr)
-        """
+
 
 class FunctionLengthChecker(StyleChecker):
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     def check(self, tokens, expr):
         funcs = expr.select('function_definition')
@@ -3463,8 +3471,8 @@ class FunctionLengthChecker(StyleChecker):
 
 
 class FunctionCountChecker(StyleChecker):
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     def check(self, tokens, expr):
         funcs = expr.select('function_definition')
@@ -3474,8 +3482,8 @@ class FunctionCountChecker(StyleChecker):
 
 
 class DirectiveIndentationChecker(StyleChecker):
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     def check(self, tokens, expr):
         level = 0
@@ -3500,8 +3508,8 @@ class DirectiveIndentationChecker(StyleChecker):
 
 
 class DeclarationChecker(StyleChecker):
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     def check_struct(self, struct):
         if struct.identifier is not None:
@@ -3540,8 +3548,8 @@ class DeclarationChecker(StyleChecker):
 
 
 class OneStatementByLineChecker(StyleChecker):
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     def _check_statements(self, a, b):
         line_a = a.last_token.end.line
@@ -3564,8 +3572,8 @@ class OneStatementByLineChecker(StyleChecker):
 
 
 class IndentationChecker(StyleChecker):
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
         self.level = 0
 
     def check_begin_indentation(self, lines, expr):
@@ -3637,8 +3645,8 @@ class BraceChecker(StyleChecker):
     Check compounds expressions only, don't check initializer lists.
     """
 
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     @staticmethod
     def _get_tokens_at_line(tokens, line):
@@ -3665,8 +3673,8 @@ class BraceChecker(StyleChecker):
 
 
 class CommaChecker(StyleChecker):
-    def __init__(self, issue_handler, options):
-        super().__init__(issue_handler, options)
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
 
     def _get_previous_and_next(self, tokens, i):
         return (self.get_previous_token(tokens, i),
@@ -3702,7 +3710,7 @@ class CommaChecker(StyleChecker):
                 self.check_semicolon(source, tokens, i, token)
 
 
-def get_argument_parser():
+def get_argument_parser(checkers):
     descr = 'Check your C programs against the "EPITECH norm".'
     parser = argparse.ArgumentParser(description=descr)
 
@@ -3718,15 +3726,16 @@ def get_argument_parser():
                         action='store_true',
                         help="verbose output")
 
-    parser.add_argument('--header-username',
-                        action='store_true',
-                        help="check the username in header comments")
-
+    help_str = 'tabulation width (defaults to {})'.format(
+        StyleChecker.DEFAULT_TAB_WIDTH)
     parser.add_argument('--tab-width',
                         action='store',
-                        default=8,
+                        default=StyleChecker.DEFAULT_TAB_WIDTH,
                         type=int,
-                        help="tabulation width (defaults to 8)")
+                        help=help_str)
+
+    for checker in checkers:
+        checker.create_argument_group(parser)
 
     return parser
 
@@ -3755,36 +3764,80 @@ def print_issue(issue):
     print(issue)
 
 
+def create_checkers(issue_handler):
+    checkers_classes = [
+        BinaryOpSpaceChecker,
+        BraceChecker,
+        CommaChecker,
+        CommentChecker,
+        DeclarationChecker,
+        DirectiveIndentationChecker,
+        FunctionLengthChecker,
+        FunctionCountChecker,
+        HeaderCommentChecker,
+        IndentationChecker,
+        LineLengthChecker,
+        OneStatementByLineChecker,
+        ReturnChecker,
+        TrailingWhitespaceChecker,
+        UnaryOpSpaceChecker,
+    ]
+    return [c(issue_handler) for c in checkers_classes]
+
+
+def _empty_file_issue(path, issue_handler):
+    begin = Position(path)
+    issue_handler(StyleIssue('Empty file, missing header comment', begin))
+
+
+def check_open_file(open_file, checkers, include_dirs=None):
+    """
+    Check an open file against the norm
+    """
+    if include_dirs is None:
+        include_dirs = []
+    source = open_file.read()
+    tokens = lex(source, file_name=open_file.name)
+    if len(tokens) == 0:
+        _empty_file_issue(open_file.name, checkers[0].issue)
+        # We must return here since some checkers fails if there
+        # is no token to check.
+        return
+
+    root_expr = parse(tokens, include_dirs)
+    for checker in checkers:
+        checker.check_source(source, tokens, root_expr)
+
+
+def check_file(file_path, checkers, include_dirs=None):
+    """
+    Open a file and check it against the norm
+    """
+    with open(file_path) as open_file:
+        check_open_file(open_file, checkers, include_dirs)
+
+
 class Program:
     """
     The main program
     """
 
-    def __init__(self, args):
+    def __init__(self):
+        self.checkers = create_checkers(self._add_issue)
+
+        argument_parser = get_argument_parser(self.checkers)
+        options = argument_parser.parse_args()
+        self.options = options
+
+        for checker in self.checkers:
+            checker.configure(options)
+
         self._issues = []
-        self.include_dirs = args.I
+        self.include_dirs = options.I
         if self.include_dirs is None:
             self.include_dirs = []
-        checkers_classes = [
-            BinaryOpSpaceChecker,
-            BraceChecker,
-            CommaChecker,
-            CommentChecker,
-            DeclarationChecker,
-            DirectiveIndentationChecker,
-            FunctionLengthChecker,
-            FunctionCountChecker,
-            HeaderCommentChecker,
-            IndentationChecker,
-            LineLengthChecker,
-            OneStatementByLineChecker,
-            ReturnChecker,
-            TrailingWhitespaceChecker,
-            UnaryOpSpaceChecker,
-        ]
-        self.verbose = args.verbose
+        self.verbose = options.verbose
         self.colors = os.isatty(sys.stdout.fileno())
-        self.checkers = [c(self._add_issue, args) for c in checkers_classes]
 
     def _add_issue(self, issue):
         assert isinstance(issue, StyleIssue)
@@ -3798,8 +3851,8 @@ class Program:
     def issues(self):
         return self._issues[:]
 
-    def check(self, path_list):
-        for path in path_list:
+    def check(self):
+        for path in self.options.source_files:
             self.check_file_or_dir(path)
 
     def check_file_or_dir(self, path, include_dirs=None):
@@ -3833,33 +3886,15 @@ class Program:
         else:
             print(string)
 
-    def _empty_file_error(self, path):
-        begin = Position(path)
-        print_issue(StyleIssue('Empty file, missing header comment', begin))
-
-    def _check_file(self, path, include_dirs):
+    def _check_file(self, file_path, include_dirs):
         if self.verbose:
-            self._print_fg_color('black', path)
-        with open(path) as source_file:
-            source = source_file.read()
-            tokens = lex(source, file_name=path)
-            if len(tokens) == 0:
-                self._empty_file_error(path)
-                # We must return here since some checkers fails if there
-                # is no token to check.
-                return
-
-            root_expr = parse(tokens, include_dirs)
-            for checker in self.checkers:
-                checker.check_source(source, tokens, root_expr)
+            self._print_fg_color('black', file_path)
+        check_file(file_path, self.checkers, include_dirs=include_dirs)
 
 
 def main():
-    argument_parser = get_argument_parser()
-    args = argument_parser.parse_args()
-
-    program = Program(args)
-    program.check(args.source_files)
+    program = Program()
+    program.check()
     program.print_issues()
     sys.exit(0 if len(program.issues) == 0 else 1)
 

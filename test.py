@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
 Unit tests for Yan.
 """
@@ -420,3 +422,43 @@ class TestParser(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             parse_expr('123').select('eiaueiuaeiua')
+
+
+def test_file(test_name, error_message=None):
+    def handle_issue(issue):
+        if error_message is None:
+            raise Exception()
+        if error_message != issue.message:
+            raise Exception('Expected {!r}, got {!r}'.format(error_message,
+                                                             issue.message))
+    checkers = yan.create_checkers(handle_issue)
+    file_path = 'test/' + test_name + '.c'
+    yan.check_file(file_path, checkers)
+
+
+class TestFiles(unittest.TestCase):
+    def test_comment(self):
+        test_file('comment_inside_function', 'Comment inside a function')
+        test_file('comment_invalid_0',
+                  "The comment lines should start with '**'")
+        test_file('comment_invalid_1', "Expected a space after '**'")
+
+    def test_return(self):
+        test_file('return_no_paren', "Missing parentheses after 'return'")
+        test_file('return_no_space',
+                  "Expected 1 spaces or tabs between 'return' and '('")
+        test_file('return_valid')
+
+    def test_binary_op_space(self):
+        test_file('binary_op_space_0',
+                  "Expected one space between '+' and '2'")
+        test_file('binary_op_space_1',
+                  "Expected one space between '1' and '+'")
+        test_file('binary_op_space_3',
+                  "Expected 0 spaces or tabs between '.' and 'n'")
+        test_file('binary_op_space_4',
+                  "Expected 0 spaces or tabs between 'a' and '->'")
+
+
+if __name__ == '__main__':
+    unittest.main()
