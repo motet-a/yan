@@ -3370,8 +3370,11 @@ class CommentChecker(StyleChecker):
         if lines[-1] != '*/':
             self.error("A comment must end with '*/'", comment.begin)
         for line in lines[1:-1]:
-            if line[:3].strip() != '**':
+            if line[:2] != '**':
                 self.error("The comment lines should start with '**'",
+                           comment.begin)
+            if line[2:3].strip() != '':
+                self.error("Expected a space after '**'",
                            comment.begin)
 
     def check(self, tokens, expr):
