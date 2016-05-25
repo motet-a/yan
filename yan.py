@@ -3138,10 +3138,18 @@ class StyleChecker:
         assert isinstance(token_a, Token)
         assert isinstance(token_b, Token)
 
-        if token_a.end.line != token_b.start.line:
+        if token_a.end.line != token_b.begin.line:
             msg = '{!r} is not on the same line than {!r}'.format(
                 token_a.string, token_b.string)
             self.error(msg, token_a.end)
+
+    @staticmethod
+    def get_previous_token(tokens, i):
+        return None if i == 0 else tokens[i - 1]
+
+    @staticmethod
+    def get_next_token(tokens, i):
+        return None if i == len(tokens) - 1 else tokens[i + 1]
 
     @staticmethod
     def _pop_char(string):
@@ -3398,21 +3406,41 @@ class UnaryOpSpaceChecker(StyleChecker):
 
 
 class ReturnChecker(StyleChecker):
+    """
+    Check for parentheses after 'return'.
+    """
+
     def __init__(self, issue_handler, options):
         super().__init__(issue_handler, options)
 
-    def check_return(self, return_expr):
+    def check_return(self, source, statement_expr):
+        return_expr = statement_expr.expression
+        if return_expr.expression is None:
+            # It is already check that the ';' is on the same line than
+            # the 'return'.
+            self.check_margin(source, return_expr.keyword, 1,
+                              statement_expr.semicolon)
+            return
         if not isinstance(return_expr.expression, ParenExpr):
             self.error("No paretheses after 'return'",
                        return_expr.keyword.end)
+            return
+        left_paren = return_expr.expression.left_paren
+        self.check_same_line(return_expr.keyword, left_paren)
+        self.check_margin(source, return_expr.keyword, 1, left_paren)
 
-    def check(self, tokens, expr):
-        returns = expr.select('jump')
+    def check_source(self, source, tokens, expr):
+        for statement in expr.select('statement'):
+            if (isinstance(statement.expression, JumpExpr) and
+                statement.expression.keyword.string == 'return'):
+                self.check_return(source, statement)
+        """
+        returns = expr.select('')
         for return_expr in returns:
             if return_expr.keyword.string == 'return':
                 if return_expr.expression is not None:
                     self.check_return(return_expr)
-
+        """
 
 class FunctionLengthChecker(StyleChecker):
     def __init__(self, issue_handler, options):
@@ -3475,14 +3503,6 @@ class DeclarationChecker(StyleChecker):
     def __init__(self, issue_handler, options):
         super().__init__(issue_handler, options)
 
-    def check_same_line(self, left, right):
-        assert isinstance(left, Token)
-        assert isinstance(right, Token)
-        if left.end.line != right.end.line:
-            msg = "{!r} is not on the same line than {!r}".format(
-                left.string, right.string)
-            self.error(msg, left.begin)
-
     def check_struct(self, struct):
         if struct.identifier is not None:
             self.check_same_line(struct.struct, struct.identifier)
@@ -3511,8 +3531,8 @@ class DeclarationChecker(StyleChecker):
         for decl in expr.select('declaration'):
             self.check_declaration(decl)
             self.check_new_line_constistency(decl)
-        for t in expr.select('type'):
-            self.check_new_line_constistency(t)
+        for type_expr in expr.select('type'):
+            self.check_new_line_constistency(type_expr)
         for func in expr.select('function_definition'):
             self.check_function_def(func)
         for decl in expr.select('function'):
@@ -3644,6 +3664,44 @@ class BraceChecker(StyleChecker):
             self._check_alone_in_line(tokens, compound.right_brace)
 
 
+class CommaChecker(StyleChecker):
+    def __init__(self, issue_handler, options):
+        super().__init__(issue_handler, options)
+
+    def _get_previous_and_next(self, tokens, i):
+        return (self.get_previous_token(tokens, i),
+                self.get_next_token(tokens, i))
+
+    def check_semicolon(self, source, tokens, i, token):
+        prev_token, next_token = self._get_previous_and_next(tokens, i)
+        if prev_token is None or next_token is None:
+            self.error("Unexpected ';'", token.position)
+        self.check_same_line(prev_token, token)
+        if prev_token.string != 'return':
+            # There is an exception for the 'return' statement,
+            # but this is checked in the ReturnChecker rather than
+            # here.
+            self.check_margin(source, prev_token, 0, token)
+        if token.end.line == next_token.begin.line:
+            self.error("{!r} on the same line than the previous ';'".format(
+                next_token.string), next_token.begin)
+
+    def check_comma(self, source, tokens, i, token):
+        prev_token, next_token = self._get_previous_and_next(tokens, i)
+        assert prev_token is not None
+        assert next_token is not None
+        self.check_same_line(prev_token, token)
+        self.check_margin(source, prev_token, 0, token)
+        self.check_margin(source, token, ' ', next_token)
+
+    def check_source(self, source, tokens, expr):
+        for i, token in enumerate(tokens):
+            if token.string == ',':
+                self.check_comma(source, tokens, i, token)
+            elif token.string == ';':
+                self.check_semicolon(source, tokens, i, token)
+
+
 def get_argument_parser():
     descr = 'Check your C programs against the "EPITECH norm".'
     parser = argparse.ArgumentParser(description=descr)
@@ -3709,6 +3767,7 @@ class Program:
         checkers_classes = [
             BinaryOpSpaceChecker,
             BraceChecker,
+            CommaChecker,
             CommentChecker,
             DeclarationChecker,
             DirectiveIndentationChecker,
