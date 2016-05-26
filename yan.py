@@ -3892,6 +3892,9 @@ class NameChecker(StyleChecker):
             elif global_variable and not decl.string.startswith('g_'):
                 self.error('Invalid global variable name', decl.token.begin)
             return
+        if isinstance(decl, SubscriptExpr):
+            self._check_declarator(decl.expression)
+            return
         if isinstance(decl, FunctionExpr):
             return
         for child in decl.children:
