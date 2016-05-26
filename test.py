@@ -457,8 +457,16 @@ class TestFiles(unittest.TestCase):
     def test_return(self):
         test_file('return_no_paren', "Missing parentheses after 'return'")
         test_file('return_no_space',
-                  "Expected 1 spaces or tabs between 'return' and '('")
+                  "Expected one space between 'return' and '('")
         test_file('return_valid')
+
+    def test_if(self):
+        test_file('if_no_space',
+                  "Expected one space between 'if' and '('")
+
+    def test_while(self):
+        test_file('while_no_space',
+                  "Expected one space between 'while' and '('")
 
     def test_binary_op_space(self):
         test_file('binary_op_space_0',

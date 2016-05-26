@@ -3514,10 +3514,6 @@ class ReturnChecker(StyleChecker):
     def check_return(self, source, statement_expr):
         return_expr = statement_expr.expression
         if return_expr.expression is None:
-            # It is already check that the ';' is on the same line than
-            # the 'return'.
-            self.check_margin(source, return_expr.keyword, 1,
-                              statement_expr.semicolon)
             return
         if not isinstance(return_expr.expression, ParenExpr):
             self.error("Missing parentheses after 'return'",
@@ -3525,13 +3521,26 @@ class ReturnChecker(StyleChecker):
             return
         left_paren = return_expr.expression.left_paren
         self.check_same_line(return_expr.keyword, left_paren)
-        self.check_margin(source, return_expr.keyword, 1, left_paren)
 
     def check_source(self, source, tokens, expr):
         for statement in expr.select('statement'):
             if (isinstance(statement.expression, JumpExpr) and
                     statement.expression.keyword.string == 'return'):
                 self.check_return(source, statement)
+
+
+class KeywordSpaceChecker(StyleChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+
+    def check_source(self, source, tokens, expr):
+        need_one_space = 'break if return while'.split()
+        for i, token in enumerate(tokens):
+            if token.kind != 'keyword':
+                continue
+            next_token = self.get_next_token(tokens, i)
+            if token.string in need_one_space:
+                self.check_margin(source, token, ' ', next_token)
 
 
 class FunctionLengthChecker(StyleChecker):
@@ -4028,6 +4037,7 @@ def create_checkers(issue_handler):
         HeaderChecker,
         HeaderCommentChecker,
         IndentationChecker,
+        KeywordSpaceChecker,
         LineLengthChecker,
         NameChecker,
         OneStatementByLineChecker,
