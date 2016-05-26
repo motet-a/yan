@@ -4009,11 +4009,11 @@ class DeclaratorAlignmentChecker(StyleChecker):
             return
         if indent % self.tab_width != 0:
             self.error('Misaligned declarator',
-                       decls[0].first_token.begin)
+                       decls[0].declarators.first_token.begin)
         for declaration in decls[1:]:
             if indent != self._get_declarator_indent(lines, declaration):
                 self.error('Misaligned declarator',
-                           declaration.first_token.begin)
+                           declaration.declarators.first_token.begin)
 
     def check_source(self, source, tokens, expr):
         lines = source.splitlines()
