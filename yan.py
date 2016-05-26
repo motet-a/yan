@@ -3922,8 +3922,9 @@ class NameChecker(StyleChecker):
 
     def _check_file_name(self, tokens):
         file_name = self.get_file_name(tokens)
-        cleaned = file_name.replace('.', '').replace('/', '')
-        cleaned = cleaned.replace('\\', '')
+        cleaned = os.path.basename(file_name)
+        # Remove the '.' of the extension
+        cleaned = cleaned.replace('.', '')
         self._check_lowercase_name(cleaned, Position(file_name))
 
     def check(self, tokens, expr):
