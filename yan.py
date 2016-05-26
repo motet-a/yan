@@ -3511,7 +3511,7 @@ class ReturnChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
-    def check_return(self, source, statement_expr):
+    def check_return(self, statement_expr):
         return_expr = statement_expr.expression
         if return_expr.expression is None:
             return
@@ -3522,11 +3522,11 @@ class ReturnChecker(StyleChecker):
         left_paren = return_expr.expression.left_paren
         self.check_same_line(return_expr.keyword, left_paren)
 
-    def check_source(self, source, tokens, expr):
+    def check(self, tokens, expr):
         for statement in expr.select('statement'):
             if (isinstance(statement.expression, JumpExpr) and
                     statement.expression.keyword.string == 'return'):
-                self.check_return(source, statement)
+                self.check_return(statement)
 
 
 class KeywordSpaceChecker(StyleChecker):
