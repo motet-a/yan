@@ -3102,6 +3102,9 @@ class StyleIssue(AbstractIssue):
     def level(self):
         return self._level
 
+    def __str__(self):
+        return str(self.position) + ': ' + self.level + ': ' + self.message
+
 
 class StyleChecker:
     DEFAULT_TAB_WIDTH = 8
@@ -4051,8 +4054,8 @@ def get_argument_parser(checkers):
     return parser
 
 
-def print_escape_code(code, string, end):
-    print('\x1b[' + str(code) + 'm' + string + '\x1b[0m', end=end)
+def colorize_string_csi(code, string, stop=True):
+    return '\x1b[' + str(code) + 'm' + string + ('\x1b[0m' if stop else '')
 
 
 def get_color_code(name):
@@ -4061,19 +4064,12 @@ def get_color_code(name):
         raise Exception()
     return colors.index(name)
 
-
-def print_fg_color(color_name, string, end='\n'):
-    print_escape_code(get_color_code(color_name) + 90, string, end)
-
-
-def print_issue(issue):
-    color = 'red' if issue.level == 'error' else 'yellow'
-    if os.isatty(sys.stdout.fileno()):
-        print_fg_color(color, issue.level, end=' ')
-    else:
-        print(issue.level, end=' ')
-    print(issue)
-
+def colorize(style_name, string, bold=False):
+    if bold:
+        return colorize_string_csi(1, colorize(style_name, string),
+                                   stop=False)
+    color = get_color_code(style_name)
+    return colorize_string_csi(color + 90, string)
 
 def create_checkers(issue_handler):
     checkers_classes = [
@@ -4126,14 +4122,18 @@ def check_open_file(open_file, checkers, include_dirs=None):
     root_expr = parse(tokens, include_dirs)
     for checker in checkers:
         checker.check_source(source, tokens, root_expr)
+    return source
 
 
 def check_file(file_path, checkers, include_dirs=None):
     """
-    Open a file and check it against the norm
+    Open a file and check it against the norm.
+
+    Return the file source.
     """
     with open(file_path) as open_file:
-        check_open_file(open_file, checkers, include_dirs)
+        source = check_open_file(open_file, checkers, include_dirs)
+    return source
 
 
 class Program:
@@ -4157,14 +4157,31 @@ class Program:
             self.include_dirs = []
         self.verbose = options.verbose
         self.colors = os.isatty(sys.stdout.fileno())
+        self.sources = {}
 
     def _add_issue(self, issue):
         assert isinstance(issue, StyleIssue)
         self._issues.append(issue)
 
+    def print_issue(self, issue):
+        string = self._colorize('white', str(issue.position) + ': ', True)
+        color = 'red' if issue.level == 'error' else 'yellow'
+        string += self._colorize(color, str(issue.level) + ': ', True)
+        string += self._colorize('white', issue.message, True)
+        print(string)
+
+        source = self.sources[issue.position.file_name]
+        line = source.splitlines()[issue.position.line - 1]
+        left = line[:issue.position.column - 1]
+        # XXX: hack hack hack
+        width = self.checkers[0].get_visible_width(left, issue.position)
+        print(line)
+        marker = self._colorize('green', '^', True)
+        print(' ' * width + marker)
+
     def print_issues(self):
         for issue in self.issues:
-            print_issue(issue)
+            self.print_issue(issue)
 
     @property
     def issues(self):
@@ -4187,8 +4204,14 @@ class Program:
         else:
             raise Exception('{!r} is not a file nor a directory'.format(path))
 
+    def _colorize(self, style_name, string, bold=False):
+        if not self.colors:
+            return string
+        return colorize(style_name, string, bold)
+
     def _check_dir(self, path, include_dirs):
-        self._print_fg_color('blue', 'checking directory {!r}'.format(path))
+        message = 'checking directory {!r}'.format(path)
+        print(self._colorize('blue', message))
         include_dirs += get_include_dirs_from_makefile(path)
         for file_name in os.listdir(path):
             if file_name.startswith('.'):
@@ -4199,16 +4222,12 @@ class Program:
                     continue
             self.check_file_or_dir(file_path, include_dirs)
 
-    def _print_fg_color(self, color_name, string):
-        if self.colors:
-            print_fg_color(color_name, string)
-        else:
-            print(string)
-
     def _check_file(self, file_path, include_dirs):
         if self.verbose:
-            self._print_fg_color('black', file_path)
-        check_file(file_path, self.checkers, include_dirs=include_dirs)
+            print(self._colorize('black', file_path))
+        source = check_file(file_path, self.checkers,
+                            include_dirs=include_dirs)
+        self.sources[file_path] = source
 
 
 def main():
