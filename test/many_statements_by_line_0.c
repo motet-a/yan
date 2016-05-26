@@ -8,7 +8,7 @@
 ** Last update Wed May 25 12:12:13 2016 antoine
 */
 
-int main()
+int     main()
 {
-  int a; return (0);
+  int   a; return (0);
 }

@@ -554,6 +554,10 @@ class TestFiles(unittest.TestCase):
         test_file('bad_typedef_struct_name.h', "Invalid type name")
         test_file('bad_macro_name.h', "'bad' is an invalid macro name")
 
+    def test_declarator_alignment(self):
+        test_file('bad_declarator_alignment_0', 'Misaligned declarator')
+        test_file('bad_declarator_alignment_1', 'Misaligned declarator')
+        test_file('declarator_alignment')
 
 if __name__ == '__main__':
     unittest.main()

@@ -8,9 +8,9 @@
 ** Last update Wed May 25 12:12:13 2016 antoine
 */
 
-int main()
+int     main()
 {
-  int a;
+  int   a;
 
   a = 23; return (0);
 }

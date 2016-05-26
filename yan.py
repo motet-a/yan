@@ -3177,19 +3177,19 @@ class StyleChecker:
             raise Exception()
         return string[0], string[1:]
 
-    def get_visible_width(self, indent_string, position, column=-1):
+    def get_visible_indent_width(self, indent_string,
+                                 position, visible_column=1):
         """
         Returns the visible width in the given string.
 
-        string: A string constitued of spaces and tabs.
+        indent_string: A string constitued of spaces and tabs.
         """
-        if column == -1:
-            column = position.column
-        begin = column
+        column = visible_column
+        begin_column = column
         tabs = 0
         spaces = 0
         while len(indent_string) > 0:
-            char, indent_string = StyleChecker._pop_char(indent_string)
+            char, indent_string = self._pop_char(indent_string)
             if char not in self.indent_chars:
                 raise Exception()
             if char == '\t':
@@ -3204,17 +3204,37 @@ class StyleChecker:
                 column += 1
             else:
                 raise Exception()
-        return column - begin
+        return column - begin_column
 
-    def check_indent(self, string, expected_width, position, column=-1):
+    def split_indent_string(self, string):
         indent_string = ''
-        while string[0] in self.indent_chars:
+        while len(string) > 0 and string[0] in self.indent_chars:
             indent_string += string[0]
             string = string[1:]
+        return indent_string, string
 
-        if column == -1:
-            column = position.column
-        width = self.get_visible_width(indent_string, position, column)
+    def get_visible_width(self, string, position, visible_column=1):
+        if len(string) == 0:
+            return 0
+
+        indent_string, string = self.split_indent_string(string)
+        width = self.get_visible_indent_width(indent_string,
+                                              position,
+                                              visible_column)
+
+        while len(string) > 0 and string[0] not in self.indent_chars:
+            width += 1
+            string = string[1:]
+        visible_column += width
+        return width + self.get_visible_width(string, position,
+                                              visible_column)
+
+    def check_indent(self, string, expected_width, position,
+                     visible_column=1):
+        indent_string, string = self.split_indent_string(string)
+
+        width = self.get_visible_indent_width(indent_string, position,
+                                              visible_column)
         if width != expected_width:
             diff = expected_width - width
             msg = 'Bad indent level, expected {} {} space{}'.format(
@@ -3968,6 +3988,39 @@ class NameChecker(StyleChecker):
             self._check_macro_name(name, token.begin)
 
 
+class DeclaratorAlignmentChecker(StyleChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+
+    def _get_declarator_indent(self, lines, declaration):
+        if len(declaration.declarators.children) == 0:
+            return -1
+        begin = declaration.declarators.first_token.begin
+        line = lines[begin.line - 1]
+        before = line[:begin.column - 1]
+        return self.get_visible_width(before, declaration.first_token.begin)
+
+    def _check_compound(self, lines, compound):
+        decls = compound.declarations
+        if len(decls) == 0:
+            return
+        indent = self._get_declarator_indent(lines, decls[0])
+        if indent == -1:
+            return
+        if indent % self.tab_width != 0:
+            self.error('Misaligned declarator',
+                       decls[0].first_token.begin)
+        for declaration in decls[1:]:
+            if indent != self._get_declarator_indent(lines, declaration):
+                self.error('Misaligned declarator',
+                           declaration.first_token.begin)
+
+    def check_source(self, source, tokens, expr):
+        lines = source.splitlines()
+        for compound in expr.select('compound'):
+            self._check_compound(lines, compound)
+
+
 def get_argument_parser(checkers):
     descr = 'Check your C programs against the "EPITECH norm".'
     parser = argparse.ArgumentParser(description=descr)
@@ -4029,6 +4082,7 @@ def create_checkers(issue_handler):
         CommaChecker,
         CommentChecker,
         DeclarationChecker,
+        DeclaratorAlignmentChecker,
         DirectiveIndentationChecker,
         EmptyLineChecker,
         EmptyLineInFunctionChecker,
