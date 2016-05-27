@@ -3803,10 +3803,11 @@ class CommaChecker(StyleChecker):
             self.error("Unexpected ';'", token.begin)
             return
         self.check_same_line(prev_token, token)
-        if prev_token.string != 'return':
+        if prev_token.string not in 'break return'.split():
             # There is an exception for the 'return' statement,
             # but this is checked in the ReturnChecker rather than
             # here.
+            # There is also an exception for the 'break' statement.
             self.check_margin(source, prev_token, 0, token)
 
         if next_token is None:

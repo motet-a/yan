@@ -559,5 +559,9 @@ class TestFiles(unittest.TestCase):
         test_file('bad_declarator_alignment_1', 'Misaligned declarator')
         test_file('declarator_alignment')
 
+    def test_break(self):
+        test_file('break_valid')
+
+
 if __name__ == '__main__':
     unittest.main()
