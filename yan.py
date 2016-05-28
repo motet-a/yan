@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# pylint: disable=too-many-lines, redefined-variable-type
+# pylint: disable=too-many-lines, redefined-variable-type, abstract-method
 
 """
 A C brace style checker designed for the "EPITECH norm".
@@ -11,6 +11,7 @@ import os
 import re
 import sys
 
+
 COPYRIGHT = """
 Copyright © 2016 Antoine Motet <antoine.motet@epitech.eu>
 
@@ -18,6 +19,7 @@ This work is free. You can redistribute it and/or modify it under the
 terms of the Do What The Fuck You Want To Public License, Version 2,
 as published by Sam Hocevar. See http://www.wtfpl.net/ for more details.
 """
+
 
 class Position:
     """
