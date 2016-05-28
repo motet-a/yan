@@ -11,6 +11,13 @@ import os
 import re
 import sys
 
+COPYRIGHT = """
+Copyright © 2016 Antoine Motet <antoine.motet@epitech.eu>
+
+This work is free. You can redistribute it and/or modify it under the
+terms of the Do What The Fuck You Want To Public License, Version 2,
+as published by Sam Hocevar. See http://www.wtfpl.net/ for more details.
+"""
 
 class Position:
     """
@@ -4002,8 +4009,9 @@ class HeaderChecker(StyleChecker):
             self.error(msg, token.begin)
 
     def _check_once_include_guard(self, tokens):
-        if len(tokens) < 2 or tokens[1].kind != 'directive':
+        if len(tokens) < 2:
             self.error('Missing once include guard', tokens[0].begin)
+            return
         self._check_directive(tokens[1], self._get_ifndef_guard(tokens))
         self._check_directive(tokens[2], self._get_define_guard(tokens))
         self._check_directive(tokens[-1], self._get_endif_guard(tokens))
@@ -4180,7 +4188,11 @@ class DeclaratorAlignmentChecker(StyleChecker):
 
 def get_argument_parser(checkers):
     descr = 'Check your C programs against the "EPITECH norm".'
-    parser = argparse.ArgumentParser(description=descr)
+    epilog = COPYRIGHT
+    formatter = argparse.RawDescriptionHelpFormatter
+    parser = argparse.ArgumentParser(description=descr,
+                                     formatter_class=formatter,
+                                     epilog=epilog)
 
     parser.add_argument('source_files',
                         nargs='*',
@@ -4264,6 +4276,8 @@ def _empty_file_issue(path, issue_handler):
 def check_open_file(open_file, checkers, include_dirs=None):
     """
     Check an open file against the norm
+
+    Return the file source or None.
     """
     if include_dirs is None:
         include_dirs = []
@@ -4273,7 +4287,7 @@ def check_open_file(open_file, checkers, include_dirs=None):
         _empty_file_issue(open_file.name, checkers[0].issue)
         # We must return here since some checkers fails if there
         # is no token to check.
-        return
+        return None
 
     root_expr = parse(tokens, include_dirs)
     for checker in checkers:
@@ -4285,7 +4299,7 @@ def check_file(file_path, checkers, include_dirs=None):
     """
     Open a file and check it against the norm.
 
-    Return the file source.
+    Return the file source or None.
     """
     with open(file_path) as open_file:
         source = check_open_file(open_file, checkers, include_dirs)
@@ -4326,7 +4340,10 @@ class Program:
         string += self._colorize('white', issue.message, True)
         print(string)
 
-        source = self.sources[issue.position.file_name]
+        file_name = issue.position.file_name
+        if file_name not in self.sources:
+            return
+        source = self.sources[file_name]
         line = source.splitlines()[issue.position.line - 1]
         left = line[:issue.position.column - 1]
         # XXX: hack hack hack
@@ -4344,6 +4361,9 @@ class Program:
         return self._issues[:]
 
     def check(self):
+        if len(self.options.source_files) == 0:
+            print('No input files')
+            return
         for path in self.options.source_files:
             self.check_file_or_dir(path)
 
@@ -4383,7 +4403,8 @@ class Program:
             print(self._colorize('black', file_path))
         source = check_file(file_path, self.checkers,
                             include_dirs=include_dirs)
-        self.sources[file_path] = source
+        if source is not None:
+            self.sources[file_path] = source
 
 
 def main():
