@@ -3968,9 +3968,50 @@ class HeaderChecker(StyleChecker):
             return
         self.check_declarator(declaration.declarators)
 
+    @staticmethod
+    def _remove_leading_hash(directive):
+        string = directive.string.strip()
+        assert string[0] == '#'
+        return string[1:].strip()
+
+    def _get_header_name_h_macro(self, tokens):
+        file_name = self.get_file_name(tokens)
+        assert file_name.endswith('.h')
+        file_name = file_name[:-2]
+        if '/' in file_name:
+            file_name = file_name[file_name.rindex('/') + 1:]
+        return file_name.upper() + '_H_'
+
+    def _get_ifndef_guard(self, tokens):
+        return 'ifndef ' + self._get_header_name_h_macro(tokens)
+
+    def _get_define_guard(self, tokens):
+        return 'define ' + self._get_header_name_h_macro(tokens)
+
+    def _get_endif_guard(self, tokens):
+        return 'endif /* !' + self._get_header_name_h_macro(tokens) + ' */'
+
+    def _check_directive(self, token, expected_string):
+        if token.kind != 'directive':
+            self.error('Expected the include guard directive {!r}'.format(
+                '#' + expected_string), token.begin)
+        string = self._remove_leading_hash(token)
+        if expected_string != string:
+            msg = 'Bad once include guard directive (expected {!r})'.format(
+                '#' + expected_string)
+            self.error(msg, token.begin)
+
+    def _check_once_include_guard(self, tokens):
+        if len(tokens) < 2 or tokens[1].kind != 'directive':
+            self.error('Missing once include guard', tokens[0].begin)
+        self._check_directive(tokens[1], self._get_ifndef_guard(tokens))
+        self._check_directive(tokens[2], self._get_define_guard(tokens))
+        self._check_directive(tokens[-1], self._get_endif_guard(tokens))
+
     def check(self, tokens, expr):
         if not self.get_file_name(tokens).endswith('.h'):
             return
+        self._check_once_include_guard(tokens)
         for child in expr.children:
             if not isinstance(child, DeclarationExpr):
                 self.error('This is forbidden in a header file',

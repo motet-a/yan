@@ -8,9 +8,9 @@
 ** Last update Thu May 26 00:08:01 2016 antoine
 */
 
-#ifndef BAD_FUNCTION_NAME_H
-# define BAD_FUNCTION_NAME_H
+#ifndef BAD_FUNCTION_NAME_H_
+# define BAD_FUNCTION_NAME_H_
 
 void    Bad(void);
 
-#endif /* BAD_FUNCTION_NAME_H */
+#endif /* !BAD_FUNCTION_NAME_H_ */

@@ -8,11 +8,11 @@
 ** Last update Wed May 25 20:13:32 2016 antoine
 */
 
-#ifndef BAD_STRUCT_NAME_H
-# define BAD_STRUCT_NAME_H
+#ifndef BAD_STRUCT_NAME_H_
+# define BAD_STRUCT_NAME_H_
 
 struct bad
 {
 };
 
-#endif /* BAD_STRUCT_NAME_H */
+#endif /* !BAD_STRUCT_NAME_H_ */

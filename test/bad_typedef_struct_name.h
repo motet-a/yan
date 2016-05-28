@@ -8,11 +8,11 @@
 ** Last update Thu May 26 00:50:32 2016 antoine
 */
 
-#ifndef BAD_TYPEDEF_STRUCT_NAME_H
-# define BAD_TYPEDEF_STRUCT_NAME_H
+#ifndef BAD_TYPEDEF_STRUCT_NAME_H_
+# define BAD_TYPEDEF_STRUCT_NAME_H_
 
 typedef struct  s_good
 {
 }               bad;
 
-#endif /* BAD_TYPEDEF_STRUCT_NAME_H */
+#endif /* !BAD_TYPEDEF_STRUCT_NAME_H_ */

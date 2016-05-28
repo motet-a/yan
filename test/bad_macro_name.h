@@ -8,9 +8,9 @@
 ** Last update Thu May 26 01:04:21 2016 antoine
 */
 
-#ifndef BAD_MACRO_NAME_H
-# define BAD_MACRO_NAME_H
+#ifndef BAD_MACRO_NAME_H_
+# define BAD_MACRO_NAME_H_
 
 # define bad
 
-#endif /* BAD_MACRO_NAME_H */
+#endif /* !BAD_MACRO_NAME_H_ */

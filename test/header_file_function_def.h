@@ -8,11 +8,11 @@
 ** Last update Wed May 25 12:42:01 2016 antoine
 */
 
-#ifndef HEADER_FILE_FUNCTION_DEF_H
-# define HEADER_FILE_FUNCTION_DEF_H
+#ifndef HEADER_FILE_FUNCTION_DEF_H_
+# define HEADER_FILE_FUNCTION_DEF_H_
 
 void    this_is_forbidden(void)
 {
 }
 
-#endif /* HEADER_FILE_FUNCTION_DEF_H */
+#endif /* !HEADER_FILE_FUNCTION_DEF_H_ */

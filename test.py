@@ -568,6 +568,11 @@ class TestFiles(unittest.TestCase):
     def test_yan_typedef(self):
         test_file('yan_typedef')
 
+    def test_header_file_once_include_guard(self):
+        test_file('header_file_bad_once_include_guard.h',
+                  "Bad once include guard directive (expected '#endif "
+                  "/* !HEADER_FILE_BAD_ONCE_INCLUDE_GUARD_H_ */')")
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -8,11 +8,11 @@
 ** Last update Thu May 26 00:47:43 2016 antoine
 */
 
-#ifndef BAD_UNION_NAME_H
-# define BAD_UNION_NAME_H
+#ifndef BAD_UNION_NAME_H_
+# define BAD_UNION_NAME_H_
 
 union bad
 {
 };
 
-#endif /* BAD_UNION_NAME_H */
+#endif /* !BAD_UNION_NAME_H_ */

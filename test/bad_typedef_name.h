@@ -8,9 +8,9 @@
 ** Last update Thu May 26 00:35:36 2016 antoine
 */
 
-#ifndef BAD_TYPEDEF_NAME_H
-# define BAD_TYPEDEF_NAME_H
+#ifndef BAD_TYPEDEF_NAME_H_
+# define BAD_TYPEDEF_NAME_H_
 
 typedef int     bad;
 
-#endif /* BAD_TYPEDEF_NAME_H */
+#endif /* !BAD_TYPEDEF_NAME_H_ */
