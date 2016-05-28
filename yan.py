@@ -1910,36 +1910,30 @@ def get_included_file_path(dir_path,
     return None
 
 
-def preprocess_system_include(token_index, name):
+class Preprocessor(TokenReader):
     """
-    Returns a FileInclusion on success.
-    Returns None if there is no system header with the given name.
+    Warning: This is not a real C preprocessor.
     """
-    system_headers = get_system_header_types()
-    if name not in system_headers:
-        print('Warning: Header not found: {!r}'.format(name))
-        return None
-    included_file = IncludedFile(True, name)
-    return FileInclusion(token_index, included_file)
 
+    def __init__(self, tokens, include_dirs=None):
+        super().__init__(tokens)
+        if include_dirs is None:
+            include_dirs = []
+        self._include_dirs = include_dirs[:]
 
-def preprocess_local_include(token_index, path):
-    """
-    Returns a FileInclusion on success.
-    """
-    assert os.path.exists(path)
-    included_file = IncludedFile(False, path)
-    return FileInclusion(token_index, included_file)
-
-
-def preprocess_include(token_index, directive_string, position, include_dirs):
-
-    def get_name_and_system(directive_string, position):
+    @staticmethod
+    def _get_name_and_system(directive_string, position):
         """
+        Parse a directive string.
+
         Return a tuple (name, system) where 'name' is the included file
         name specified between the quotes, and 'system' is True if
         '#include <...>' has been used, False if '#include "..."' has
         been used.
+
+        directive_string: A directive string without the '#'
+        position: The position of that directive, used to raise a syntax
+        error if the given string is invalid.
         """
         assert directive_string.startswith('include')
         quoted_name = directive_string[len('include'):].strip()
@@ -1951,33 +1945,96 @@ def preprocess_include(token_index, directive_string, position, include_dirs):
         else:
             raise SyntaxError('Invalid #include directive', position)
 
-    name, system = get_name_and_system(directive_string, position)
-    dir_path = os.path.dirname(position.file_name)
-    included_file_path = get_included_file_path(dir_path,
-                                                name, system,
-                                                include_dirs)
-    if included_file_path is None:
-        return preprocess_system_include(token_index, name)
-    else:
-        return preprocess_local_include(token_index, included_file_path)
+    @staticmethod
+    def _preprocess_system_include(name):
+        """
+        Returns an IncludedFile on success.
+        Returns None if there is no system header with the given name.
+        """
+        system_headers = get_system_header_types()
+        if name not in system_headers:
+            print('Warning: Header not found: {!r}'.format(name))
+            return None
+        return IncludedFile(True, name)
 
+    @staticmethod
+    def _preprocess_local_include(path):
+        """
+        Returns an IncludedFile.
+        """
+        assert os.path.exists(path)
+        return IncludedFile(False, path)
 
-def preprocess_directive(token_index, directive, include_dirs):
-    """
-    Returns a FileInclusion or None.
-    """
-    assert directive.kind == 'directive'
-    string = directive.string.strip()
-    assert string[0] == '#'
-    # There may be several spaces between the '#' and the
-    # next word, we need to strip these
-    string = string[1:].strip()
-    if string.startswith('include'):
-        return preprocess_include(token_index, string, directive.begin,
-                                  include_dirs)
-    if string.startswith('ifdef'):
-        string = string[5].strip()
-        return None
+    @staticmethod
+    def _remove_directive_leading_hash(directive):
+        assert directive.kind == 'directive'
+        string = directive.string.strip()
+        assert string[0] == '#'
+        # There may be several spaces between the '#' and the
+        # next word, we need to strip these
+        return string[1:].strip()
+
+    def _preprocess_include(self, directive):
+        """
+        Returns an IncludedFile or None
+        """
+        string = self._remove_directive_leading_hash(directive)
+        name, system = self._get_name_and_system(string,
+                                                 directive.begin)
+        file_name = directive.begin.file_name
+        dir_path = os.path.dirname(file_name)
+        included_file_path = get_included_file_path(dir_path,
+                                                    name, system,
+                                                    self._include_dirs)
+        if included_file_path is None:
+            return self._preprocess_system_include(name)
+        else:
+            return self._preprocess_local_include(included_file_path)
+
+    def _preprocess_directive(self, token_index, directive):
+        """
+        Return a FileInclusion or None.
+        """
+        string = self._remove_directive_leading_hash(directive)
+        if string.startswith('include'):
+            inc_file = self._preprocess_include(directive)
+            if inc_file is None:
+                return None
+            return FileInclusion(token_index, inc_file)
+        if string.startswith('ifdef'):
+            string = string[5].strip()
+            return None
+
+    def _preprocess_token(self, token_index):
+        """
+        Return a FileInclusion, a Token or None.
+        """
+        if not self.has_more:
+            return None
+        token = self.next()
+        if token.kind == 'comment':
+            return self._preprocess_token(token_index)
+        if token.kind == 'directive':
+            token = self._preprocess_directive(token_index, token)
+            if token is None:
+                return self._preprocess_token(token_index)
+            return token
+        return token
+
+    def preprocess(self):
+        """
+        Preprocess the tokens.
+
+        Return a PreprocessorResult.
+        """
+        result = PreprocessorResult([], [])
+        while True:
+            i = len(result.tokens)
+            token = self._preprocess_token(i)
+            if token is None:
+                break
+            result.append(token)
+        return result
 
 
 def preprocess(tokens, include_dirs=None):
@@ -1987,21 +2044,8 @@ def preprocess(tokens, include_dirs=None):
     This function acts a bit like a preprocessor since it removes
     comments and expands includes.
     """
-    if include_dirs is None:
-        include_dirs = []
-
-    result = PreprocessorResult([], [])
-    for token in tokens:
-        if token.kind == 'comment':
-            continue
-        elif token.kind == 'directive':
-            i = len(result.tokens)
-            fi = preprocess_directive(i, token, include_dirs)
-            if fi is not None:
-                result.append(fi)
-        else:
-            result.append(token)
-    return result
+    cpp = Preprocessor(tokens, include_dirs)
+    return cpp.preprocess()
 
 
 def backtrack(function):
@@ -4065,12 +4109,14 @@ def get_color_code(name):
         raise Exception()
     return colors.index(name)
 
+
 def colorize(style_name, string, bold=False):
     if bold:
         return colorize_string_csi(1, colorize(style_name, string),
                                    stop=False)
     color = get_color_code(style_name)
     return colorize_string_csi(color + 90, string)
+
 
 def create_checkers(issue_handler):
     checkers_classes = [
