@@ -2005,6 +2005,40 @@ class Preprocessor(TokenReader):
             string = string[5].strip()
             return None
 
+    @staticmethod
+    def _get_yan_directive_comment(comment_string):
+        lines = comment_string.splitlines()
+        for line in lines:
+            line = line.lstrip('*').strip()
+            if line.startswith('yan '):
+                return line[3:].strip()
+        return None
+
+    def _skip_until_parser_on(self):
+        while True:
+            if not self.has_more:
+                return
+            token = self.next()
+            if token.kind != 'comment':
+                continue
+            directive = self._get_yan_directive_comment(token.string)
+            if directive is None:
+                continue
+            if directive == 'parser on':
+                return
+
+    def _preprocess_comment(self, token_index, comment):
+        directive = Preprocessor._get_yan_directive_comment(comment.string)
+        if directive is None:
+            return self._preprocess_token(token_index)
+        print('{}: Yan comment directive {!r}'.format(comment.begin,
+                                                      directive))
+        if directive == 'parser on':
+            raise SyntaxError('The parser is already enabled', comment.begin)
+        if directive == 'parser off':
+            self._skip_until_parser_on()
+        return self._preprocess_token(token_index)
+
     def _preprocess_token(self, token_index):
         """
         Return a FileInclusion, a Token or None.
@@ -2013,7 +2047,7 @@ class Preprocessor(TokenReader):
             return None
         token = self.next()
         if token.kind == 'comment':
-            return self._preprocess_token(token_index)
+            return self._preprocess_comment(token_index, token)
         if token.kind == 'directive':
             token = self._preprocess_directive(token_index, token)
             if token is None:

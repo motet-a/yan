@@ -562,6 +562,9 @@ class TestFiles(unittest.TestCase):
     def test_break(self):
         test_file('break_valid')
 
+    def test_yan_parser_off(self):
+        test_file('yan_parser_off')
+
 
 if __name__ == '__main__':
     unittest.main()
