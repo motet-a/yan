@@ -1735,24 +1735,48 @@ class IncludedFile:
             self.system, self.path)
 
 
-class FileInclusion:
+class YanDirective:
     """
-    Represents an inclusion with an #include directive.
+    Represents a Yan comment directive.
     """
 
-    def __init__(self, token_index, file):
+    def __init__(self, token_index):
         """
-        token_index: The index of the removed inclusion in the
-        preprocessed token list.
-        file: An IncludedFile
+        token_index: The index of the directive in the preprocessed token
+        list.
         """
-        assert isinstance(file, IncludedFile)
         self._token_index = token_index
-        self._file = file
 
     @property
     def token_index(self):
         return self._token_index
+
+
+class YanTypedefDirective(YanDirective):
+    def __init__(self, token_index, type_names):
+        assert isinstance(type_names, list)
+        super().__init__(token_index)
+        self._type_names = type_names[:]
+
+    @property
+    def type_names(self):
+        return self._type_names[:]
+
+
+class FileInclusion(YanDirective):
+    """
+    Represents an inclusion with an #include directive.
+    """
+
+    def __init__(self, token_index, inc_file):
+        """
+        token_index: The index of the removed inclusion in the
+        preprocessed token list.
+        inc_file: An IncludedFile
+        """
+        super().__init__(token_index)
+        assert isinstance(inc_file, IncludedFile)
+        self._file = inc_file
 
     @property
     def file(self):
@@ -1764,29 +1788,29 @@ class FileInclusion:
 
 
 class PreprocessorResult:
-    def __init__(self, tokens, inclusions):
+    def __init__(self, tokens, directives):
         self._tokens = tokens[:]
-        self._inclusions = inclusions[:]
+        self._directives = directives[:]
 
     @property
     def tokens(self):
         return self._tokens[:]
 
     @property
-    def inclusions(self):
-        return self._inclusions[:]
+    def directives(self):
+        return self._directives[:]
 
     def append(self, o):
         if isinstance(o, Token):
             self._tokens.append(o)
-        elif isinstance(o, FileInclusion):
-            self._inclusions.append(o)
+        elif isinstance(o, YanDirective):
+            self._directives.append(o)
         else:
             raise ValueError()
 
     def __add__(self, other):
         return PreprocessorResult(self.tokens + other.tokens,
-                                  self.inclusions + other.inclusions)
+                                  self.directives + other.directives)
 
 
 def get_system_header_types():
@@ -2037,11 +2061,14 @@ class Preprocessor(TokenReader):
             raise SyntaxError('The parser is already enabled', comment.begin)
         if directive == 'parser off':
             self._skip_until_parser_on()
+        if directive.startswith('typedef'):
+            type_names = directive.split()[1:]
+            return YanTypedefDirective(token_index, type_names)
         return self._preprocess_token(token_index)
 
     def _preprocess_token(self, token_index):
         """
-        Return a FileInclusion, a Token or None.
+        Return a YanDirective, a Token or None.
         """
         if not self.has_more:
             return None
@@ -2116,7 +2143,7 @@ class Parser(TokenReader):
         self._source_tokens = tokens[:]
         self._include_dirs = include_dirs[:]
         pp_result = preprocess(tokens, include_dirs)
-        self._inclusions = pp_result.inclusions[:]
+        self._directives = pp_result.directives[:]
 
         TokenReader.__init__(self, pp_result.tokens)
         self._types = []
@@ -2202,16 +2229,23 @@ class Parser(TokenReader):
         else:
             self._expand_local_include(included_file)
 
-    def _expand_inclusions(self):
-        while len(self._inclusions) > 0:
-            inclusion = self._inclusions[0]
-            if inclusion.token_index != self.index:
+    def _expand_directives(self):
+        while len(self._directives) > 0:
+            directive = self._directives[0]
+            if not isinstance(directive, YanDirective):
+                continue
+            if directive.token_index != self.index:
                 break
-            self._inclusions.pop(0)
-            self._expand_included_file(inclusion.file)
+            if isinstance(directive, FileInclusion):
+                self._expand_included_file(directive.file)
+            elif isinstance(directive, YanTypedefDirective):
+                self.add_types(directive.type_names)
+            else:
+                raise Exception()
+            self._directives.pop(0)
 
     def next(self):
-        self._expand_inclusions()
+        self._expand_directives()
         return TokenReader.next(self)
 
     def _raise_syntax_error(self, message='Syntax error'):
@@ -3111,9 +3145,9 @@ class Parser(TokenReader):
             if decl is not None:
                 declarations.append(decl)
         expr = TranslationUnitExpr(declarations)
-        self._expand_inclusions()
-        if len(self._inclusions) > 0:
-            raise Exception()
+        self._expand_directives()
+        if len(self._directives) > 0:
+            raise Exception('Parser internal error')
         return expr
 
     def parse(self):

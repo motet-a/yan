@@ -565,6 +565,9 @@ class TestFiles(unittest.TestCase):
     def test_yan_parser_off(self):
         test_file('yan_parser_off')
 
+    def test_yan_typedef(self):
+        test_file('yan_typedef')
+
 
 if __name__ == '__main__':
     unittest.main()
