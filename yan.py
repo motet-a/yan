@@ -1893,6 +1893,7 @@ def get_system_header_types():
         'dirent.h':     'DIR',
         'errno.h':      '',
         'fcntl.h':      '',
+        'glob.h':       'glob_t',
         'grp.h':        '',
         'ncurses.h':    curses,
         'pwd.h':        '',
