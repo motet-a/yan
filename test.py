@@ -401,6 +401,10 @@ class TestParser(unittest.TestCase):
                             'c;\n'
                             '}')
 
+    def test_bug_cpp_comments(self):
+        with self.assertRaises(NSyntaxError):
+            parse('int main() {//bug\n}')
+
     def test_selection(self):
         expr = parse_expr('1 + 1')
         plus = expr.select('binary_operation')

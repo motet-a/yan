@@ -2893,7 +2893,10 @@ class Parser(TokenReader):
             operator = self._parse_sign(operators)
             if operator is None:
                 break
-            left = BinaryOperationExpr(left, operator, sub_function())
+            right = sub_function()
+            if right is None:
+                self._raise_syntax_error()
+            left = BinaryOperationExpr(left, operator, right)
         return left
 
     @backtrack
