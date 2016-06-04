@@ -4421,7 +4421,8 @@ def main():
     program = Program()
     program.check()
     program.print_issues()
-    sys.exit(0 if len(program.issues) == 0 else 1)
+    error_count = len([e for e in program.issues if e.level == 'error'])
+    sys.exit(os.EX_OK if error_count == 0 else os.EX_DATAERR)
 
 
 if __name__ == '__main__':
