@@ -577,6 +577,9 @@ class TestFiles(unittest.TestCase):
                   "Bad once include guard directive (expected '#endif "
                   "/* !HEADER_FILE_BAD_ONCE_INCLUDE_GUARD_H_ */')")
 
+    def test_bug_invalid_name_in_initializer(self):
+        test_file('bug_invalid_name_in_initializer')
+
 
 if __name__ == '__main__':
     unittest.main()

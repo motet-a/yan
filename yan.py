@@ -4096,6 +4096,11 @@ class NameChecker(StyleChecker):
             return
         if isinstance(decl, FunctionExpr):
             return
+        if isinstance(decl, BinaryOperationExpr):
+            if decl.operator.string == '=':
+                # Don't check the initializer
+                self._check_declarator(decl.left, typedef, global_variable)
+                return
         for child in decl.children:
             self._check_declarator(child, typedef, global_variable)
 
