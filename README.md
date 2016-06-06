@@ -42,13 +42,28 @@ supported.
 header containing a type important in your program (say `t_my_type`), you
 can add this comment before your first use of `t_my_type`:
 
-```
+```c
 /*
 ** yan typedef t_my_type
 */
 ```
 
-Some features of C99 will be implemented soon.
+If Yan crashes on a part of your code, you can indicate it to ignore the
+problematic part:
+
+```c
+/*
+** yan parser off
+*/
+
+...some C++ stuff to skip...
+
+/*
+** yan parser on
+*/
+```
+
+Some features of C99 are implemented (e.g. designated initializers).
 
 
 
