@@ -8,7 +8,7 @@
 ** Last update Wed May 25 11:57:29 2016 antoine
 */
 
-int main()
+int     main()
 {
   return (1 +2);
 }

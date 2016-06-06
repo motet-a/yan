@@ -11,7 +11,7 @@
 /*
 ** This is a very very very very very very very very very very very very very long comment
 */
-int main()
+int     main()
 {
   return (0);
 }

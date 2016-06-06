@@ -8,7 +8,7 @@
 ** Last update Wed May 25 12:08:49 2016 antoine
 */
 
-int main()
+int     main()
 {
   this_is_a_very_very_very_very_very_very_very_very_very_very_very_long_function_name();
 }

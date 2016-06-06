@@ -11,7 +11,7 @@
 #ifndef BAD_STRUCT_NAME_H_
 # define BAD_STRUCT_NAME_H_
 
-struct bad
+struct  bad
 {
 };
 

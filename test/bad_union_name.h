@@ -11,7 +11,7 @@
 #ifndef BAD_UNION_NAME_H_
 # define BAD_UNION_NAME_H_
 
-union bad
+union   bad
 {
 };
 

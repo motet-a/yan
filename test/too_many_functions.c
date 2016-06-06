@@ -8,26 +8,26 @@
 ** Last update Wed May 25 12:32:30 2016 antoine
 */
 
-void a(void)
+void    a(void)
 {
 }
 
-void b(void)
+void    b(void)
 {
 }
 
-void c(void)
+void    c(void)
 {
 }
 
-void d(void)
+void    d(void)
 {
 }
 
-void e(void)
+void    e(void)
 {
 }
 
-void f(void)
+void    f(void)
 {
 }

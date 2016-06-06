@@ -3311,6 +3311,7 @@ class StyleChecker:
         Returns the visible width in the given string.
 
         indent_string: A string constitued of spaces and tabs.
+        position: Only used to raise some errors
         """
         column = visible_column
         begin_column = column
@@ -3342,6 +3343,9 @@ class StyleChecker:
         return indent_string, string
 
     def get_visible_width(self, string, position, visible_column=1):
+        """
+        position: Only used to raise some errors
+        """
         if len(string) == 0:
             return 0
 
@@ -4168,33 +4172,78 @@ class DeclaratorAlignmentChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
-    def _get_declarator_indent(self, lines, declaration):
-        if len(declaration.declarators.children) == 0:
-            return -1
-        begin = declaration.declarators.first_token.begin
+    def _get_token_indent(self, lines, token):
+        begin = token.begin
         line = lines[begin.line - 1]
         before = line[:begin.column - 1]
-        return self.get_visible_width(before, declaration.first_token.begin)
+        return self.get_visible_width(before, token.begin)
 
-    def _check_compound(self, lines, compound):
+    def _get_declarator_indent(self, lines, declaration):
+        declarators = declaration.declarators
+        if len(declarators.children) == 0:
+            return -1
+        return self._get_token_indent(lines, declarators.first_token)
+
+    def _check_declaration(self, lines, declaration, expected_indent=-1):
+        indent = self._get_declarator_indent(lines, declaration)
+        if indent == -1:
+            return
+        declarator_begin = declaration.declarators.first_token.begin
+        if indent % self.tab_width != 0:
+            self.error('Misaligned declarator', declarator_begin)
+            return
+        if expected_indent != -1 and expected_indent != indent:
+            msg = 'Misaligned declarator (expected at the column {})'.format(
+                expected_indent)
+            self.error(msg, declarator_begin)
+
+    def _check_compound(self, lines, compound, expected_indent=-1):
         decls = compound.declarations
         if len(decls) == 0:
             return
-        indent = self._get_declarator_indent(lines, decls[0])
-        if indent == -1:
-            return
+        if expected_indent == -1:
+            expected_indent = self._get_declarator_indent(lines, decls[0])
+            if expected_indent == -1:
+                return
+        for declaration in decls:
+            self._check_declaration(lines, declaration, expected_indent)
+
+    def _check_struct(self, lines, struct):
+        assert struct.compound is not None
+        indent = -1
+        if struct.identifier is not None:
+            indent = self._get_token_indent(lines, struct.identifier)
+            if indent % self.tab_width != 0:
+                self.error('Misaligned {} name'.format(struct.struct),
+                           struct.identifier.begin)
+        self._check_compound(lines, struct.compound, indent)
+
+    def _check_function_def(self, lines, function):
+        indent = self._get_token_indent(lines,
+                                        function.declarator.first_token)
         if indent % self.tab_width != 0:
-            self.error('Misaligned declarator',
-                       decls[0].declarators.first_token.begin)
-        for declaration in decls[1:]:
-            if indent != self._get_declarator_indent(lines, declaration):
-                self.error('Misaligned declarator',
-                           declaration.declarators.first_token.begin)
+            self.error('Misaligned function name',
+                       function.declarator.first_token.begin)
+            return
+        self._check_compound(lines, function.compound, indent)
 
     def check_source(self, source, tokens, expr):
         lines = source.splitlines()
-        for compound in expr.select('compound'):
+        compounds_to_check = list(expr.select('compound'))
+        for struct in expr.select('struct'):
+            if struct.compound is None:
+                continue
+            self._check_struct(lines, struct)
+            compounds_to_check.remove(struct.compound)
+        for func in expr.select('function_definition'):
+            self._check_function_def(lines, func)
+            compounds_to_check.remove(func.compound)
+        for compound in compounds_to_check:
             self._check_compound(lines, compound)
+        for child in expr.children:
+            if not isinstance(child, DeclarationExpr):
+                continue
+            self._check_declaration(lines, child)
 
 
 def get_argument_parser(checkers):
