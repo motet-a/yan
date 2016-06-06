@@ -15,73 +15,40 @@ However, Yan does not handle macros and preprocessor directives (except
 
 
 
-## Features
+## What does it checks?
 
-The parser can process complex declarations like these ones:
+A lot of rules of the *EPITECH style* are checked. I don't want to list
+all the checks here, it's a pain to describe and to read. Here is a short
+summary.
 
-```c
-int *const *b;
-int (*getFunc())(int, int (*)(long));
-struct a {int c} f(void)[];
-```
+A few rules are not implemented yet, and a few rules are not implementable
+(they must be checked by a human).
+
+A notable feature of this program is its ability to check the most of
+the rules relative to the indentation.
+
+Forbiden statements like `for` and `switch` are not implemented
+in the parser. If you use one, it leads to a syntax error.
+
+
+
+## Other features
 
 `<stdarg.h>` and `va_arg()` are supported. « Calls » to function-like
 macros with a type as argument are supported, ellipsis (`...`) is
 supported.
 
-`typedef` is (partially) supported.
+`typedef` is (partially) supported. If Yan fails to analyze a
+header containing a type important in your program (say `t_my_type`), you
+can add this comment before your first use of `t_my_type`:
+
+```
+/*
+** yan typedef t_my_type
+*/
+```
 
 Some features of C99 will be implemented soon.
-
-
-
-## What does it checks?
-
-Currently:
-
-- **The spaces before and after operators**
-
-- **In a declaration, if the type is on the same line than the declarator**
-
-```
-$ cat test.c
-/*
-** test.c for  in /home/antoine
-**
-** Made by antoine
-** Login   <antoine@epitech.net>
-**
-** Started on  Fri May 13 12:42:49 2016 antoine
-** Last update Fri May 13 12:42:49 2016 antoine
-*/
-
-int main()
-{
-  int
-    a;
-}
-$ ./yan.py test.c
-test.c:13:3: 'int' is not on the same line than 'a'
-```
-
-- **The comments** — Optionnally, it can check if the username in a
-  header comment is valid with the `--header-username` option.
-
-- **The indentation of the preprocessor directives**
-
-- **The function definitions length**
-
-- **The function definitions count in a file**
-
-- **The lines length**
-
-- **The parentheses after `return`** — TODO: Check for the space
-  after `return`.
-
-- **The trailing whitespaces at the end of the lines**
-
-Forbiden statements like `for` and `switch` are not implemented
-in the parser. If you use one, it leads to a syntax error.
 
 
 
