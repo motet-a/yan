@@ -565,6 +565,13 @@ class TestFiles(unittest.TestCase):
 
     def test_break(self):
         test_file('break_valid')
+        test_file('break_invalid',
+                  "Expected one space between 'break' and ';'")
+
+    def test_continue(self):
+        test_file('continue_valid')
+        test_file('continue_invalid',
+                  "Expected one space between 'continue' and ';'")
 
     def test_yan_parser_off(self):
         test_file('yan_parser_off')

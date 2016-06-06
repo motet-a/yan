@@ -3729,7 +3729,7 @@ class KeywordSpaceChecker(StyleChecker):
         super().__init__(issue_handler)
 
     def check_source(self, source, tokens, expr):
-        need_one_space = 'break if return while'.split()
+        need_one_space = 'break continue if return while'.split()
         for i, token in enumerate(tokens):
             if token.kind != 'keyword':
                 continue
@@ -3975,11 +3975,12 @@ class CommaChecker(StyleChecker):
             self.error("Unexpected ';'", token.begin)
             return
         self.check_same_line(prev_token, token)
-        if prev_token.string not in 'break return'.split():
+        if prev_token.string not in 'break continue return'.split():
             # There is an exception for the 'return' statement,
             # but this is checked in the ReturnChecker rather than
             # here.
-            # There is also an exception for the 'break' statement.
+            # There is also an exception for 'break' and 'continue'
+            # statements.
             self.check_margin(source, prev_token, 0, token)
 
         if next_token is None:
