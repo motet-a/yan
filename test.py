@@ -162,8 +162,8 @@ class TestLexer(unittest.TestCase):
 
 class TestIncludedFile(unittest.TestCase):
     def test_eq(self):
-        self.assertEqual(yan.IncludedFile(True, 'a.h'),
-                         yan.IncludedFile(True, 'a.h'))
+        self.assertEqual(yan.IncludedFile(False, 'a.h'),
+                         yan.IncludedFile(False, 'a.h'))
 
 
 class TestParser(unittest.TestCase):

@@ -1713,116 +1713,7 @@ class TokenReader:
         return self._tokens[self._index].end
 
 
-class IncludedFile:
-    """
-    Represents a file included with an #include directive.
-    """
-
-    def __init__(self, system, path):
-        assert isinstance(system, bool)
-        assert isinstance(path, str)
-        self._system = system
-        self._path = path
-
-    def __eq__(self, other):
-        return (isinstance(other, self.__class__) and
-                self.__dict__ == other.__dict__)
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-    @property
-    def system(self):
-        return self._system
-
-    @property
-    def path(self):
-        return self._path
-
-    def __repr__(self):
-        return '<IncludedFile system={!r} path={!r}>'.format(
-            self.system, self.path)
-
-
-class YanDirective:
-    """
-    Represents a Yan comment directive.
-    """
-
-    def __init__(self, token_index):
-        """
-        token_index: The index of the directive in the preprocessed token
-        list.
-        """
-        self._token_index = token_index
-
-    @property
-    def token_index(self):
-        return self._token_index
-
-
-class YanTypedefDirective(YanDirective):
-    def __init__(self, token_index, type_names):
-        assert isinstance(type_names, list)
-        super().__init__(token_index)
-        self._type_names = type_names[:]
-
-    @property
-    def type_names(self):
-        return self._type_names[:]
-
-
-class FileInclusion(YanDirective):
-    """
-    Represents an inclusion with an #include directive.
-    """
-
-    def __init__(self, token_index, inc_file):
-        """
-        token_index: The index of the removed inclusion in the
-        preprocessed token list.
-        inc_file: An IncludedFile
-        """
-        super().__init__(token_index)
-        assert isinstance(inc_file, IncludedFile)
-        self._file = inc_file
-
-    @property
-    def file(self):
-        return self._file
-
-    def __repr__(self):
-        return '<FileInclusion file={!r} token_index={!r}>'.format(
-            self.file, self.token_index)
-
-
-class PreprocessorResult:
-    def __init__(self, tokens, directives):
-        self._tokens = tokens[:]
-        self._directives = directives[:]
-
-    @property
-    def tokens(self):
-        return self._tokens[:]
-
-    @property
-    def directives(self):
-        return self._directives[:]
-
-    def append(self, o):
-        if isinstance(o, Token):
-            self._tokens.append(o)
-        elif isinstance(o, YanDirective):
-            self._directives.append(o)
-        else:
-            raise ValueError()
-
-    def __add__(self, other):
-        return PreprocessorResult(self.tokens + other.tokens,
-                                  self.directives + other.directives)
-
-
-def get_system_header_types():
+def _get_system_header_types():
     """
     Types are part of the syntax. We must know the defined types
     to be able to parse correctly a file. But parsing a header
@@ -1914,6 +1805,149 @@ def get_system_header_types():
     return {h: types.split() for h, types in strings.items()}
 
 
+class IncludedFile:
+    """
+    Represents a file included with an #include directive.
+    """
+
+    def __init__(self, system, path):
+        assert isinstance(system, bool)
+        assert isinstance(path, str)
+        self._system = system
+        self._path = path
+        if system:
+            self._types = _get_system_header_types()[path]
+        else:
+            self._types = None
+
+    def __eq__(self, other):
+        return (isinstance(other, self.__class__) and
+                self.__dict__ == other.__dict__)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    @property
+    def system(self):
+        return self._system
+
+    @property
+    def types(self):
+        return self._types
+
+    @types.setter
+    def types(self, types):
+        assert isinstance(types, list)
+        if self.types is not None:
+            raise Exception('The types of this file are already set')
+        if self._system:
+            raise Exception('The types of a system header file are read-only')
+        self._types = types
+
+    @property
+    def path(self):
+        return self._path
+
+    def __repr__(self):
+        return '<IncludedFile system={!r} path={!r} types={!r}>'.format(
+            self.system, self.path, self.types)
+
+
+class IncludedFileCache:
+    def __init__(self):
+        self._files = []
+
+    def file(self, path):
+        for inc_file in self._files:
+            if inc_file.path == path:
+                return inc_file
+        return None
+
+    def add_file(self, included_file):
+        assert not included_file.system
+        if included_file in self._files:
+            raise Exception('File already cached')
+        self._files.append(included_file)
+
+
+class YanDirective:
+    """
+    Represents a Yan comment directive.
+    """
+
+    def __init__(self, token_index):
+        """
+        token_index: The index of the directive in the preprocessed token
+        list.
+        """
+        self._token_index = token_index
+
+    @property
+    def token_index(self):
+        return self._token_index
+
+
+class YanTypedefDirective(YanDirective):
+    def __init__(self, token_index, type_names):
+        assert isinstance(type_names, list)
+        super().__init__(token_index)
+        self._type_names = type_names[:]
+
+    @property
+    def type_names(self):
+        return self._type_names[:]
+
+
+class FileInclusion(YanDirective):
+    """
+    Represents an inclusion with an #include directive.
+    """
+
+    def __init__(self, token_index, inc_file):
+        """
+        token_index: The index of the removed inclusion in the
+        preprocessed token list.
+        inc_file: An IncludedFile
+        """
+        super().__init__(token_index)
+        assert isinstance(inc_file, IncludedFile)
+        self._file = inc_file
+
+    @property
+    def file(self):
+        return self._file
+
+    def __repr__(self):
+        return '<FileInclusion file={!r} token_index={!r}>'.format(
+            self.file, self.token_index)
+
+
+class PreprocessorResult:
+    def __init__(self, tokens, directives):
+        self._tokens = tokens[:]
+        self._directives = directives[:]
+
+    @property
+    def tokens(self):
+        return self._tokens[:]
+
+    @property
+    def directives(self):
+        return self._directives[:]
+
+    def append(self, o):
+        if isinstance(o, Token):
+            self._tokens.append(o)
+        elif isinstance(o, YanDirective):
+            self._directives.append(o)
+        else:
+            raise ValueError()
+
+    def __add__(self, other):
+        return PreprocessorResult(self.tokens + other.tokens,
+                                  self.directives + other.directives)
+
+
 def get_included_file_path(dir_path,
                            included_file_name, system, include_dirs):
     """
@@ -1986,7 +2020,7 @@ class Preprocessor(TokenReader):
         Returns an IncludedFile on success.
         Returns None if there is no system header with the given name.
         """
-        system_headers = get_system_header_types()
+        system_headers = _get_system_header_types()
         if name not in system_headers:
             print('Warning: Header not found: {!r}'.format(name))
             return None
@@ -2148,7 +2182,10 @@ class Parser(TokenReader):
     """
     # pylint: disable=invalid-name
 
-    def __init__(self, tokens, include_dirs=None):
+    def __init__(self, tokens, include_dirs=None, included_file_cache=None):
+        if included_file_cache is None:
+            included_file_cache = IncludedFileCache()
+        assert isinstance(included_file_cache, IncludedFileCache)
         if include_dirs is None:
             include_dirs = []
         self._source_tokens = tokens[:]
@@ -2159,6 +2196,7 @@ class Parser(TokenReader):
         TokenReader.__init__(self, pp_result.tokens)
         self._types = []
         self._included_files = []
+        self._included_file_cache = included_file_cache
         self._in_typedef = False
 
     @property
@@ -2198,18 +2236,23 @@ class Parser(TokenReader):
             self.add_type(type_name)
 
     def _expand_local_include(self, included_file):
-        assert not included_file.system
-
-        if self._is_already_included(included_file):
-            return
-        self._included_files.append(included_file)
-
         path = included_file.path
         assert os.path.exists(path)
+
+        cached_file = self._included_file_cache.file(path)
+        if cached_file is not None:
+            included_file = cached_file
+
+        assert not included_file.system
+
+        if included_file.types is not None:
+            self.add_types(included_file.types)
+            return
+
         with open(path) as h:
             source = h.read()
         tokens = lex(source, file_name=path)
-        parser = Parser(tokens, self._include_dirs)
+        parser = Parser(tokens, self._include_dirs, self._included_file_cache)
         parser.add_types(self.types)
         parser._included_files += self._included_files
         try:
@@ -2217,24 +2260,23 @@ class Parser(TokenReader):
         except NSyntaxError as e:
             print("In file included from {}:".format(self.file_name))
             raise e
+
+        included_file.types = parser.types
+        self._included_file_cache.add_file(included_file)
         self.add_types(parser.types)
 
     def _expand_system_include(self, included_file):
         assert included_file.system
-
-        header_types = get_system_header_types()
-        name = included_file.path
-        assert name in header_types
-
-        if self._is_already_included(included_file):
-            return
-
-        self._included_files.append(included_file)
-        self.add_types(header_types[name])
+        self.add_types(included_file.types)
 
     def _expand_included_file(self, included_file):
         assert isinstance(included_file, IncludedFile)
         # print('expand included file {!r}'.format(included_file.path))
+
+        if self._is_already_included(included_file):
+            return
+        self._included_files.append(included_file)
+
         if included_file.system:
             self._expand_system_include(included_file)
         else:
@@ -3176,7 +3218,7 @@ def argument_to_tokens(v):
     return v
 
 
-def parse(v, include_directories=None):
+def parse(v, include_directories=None, included_file_cache=None):
     """
     v: a string or a list of tokens
     """
@@ -3185,7 +3227,7 @@ def parse(v, include_directories=None):
         include_directories = []
 
     tokens = argument_to_tokens(v)
-    parser = Parser(tokens, include_directories)
+    parser = Parser(tokens, include_directories, included_file_cache)
     tree = parser.parse()
     assert isinstance(tree, Expr)
     tokens = preprocess(tokens, include_directories).tokens
@@ -4334,7 +4376,8 @@ def _empty_file_issue(path, issue_handler):
     issue_handler(StyleIssue('Empty file, missing header comment', begin))
 
 
-def check_open_file(open_file, checkers, include_dirs=None):
+def check_open_file(open_file, checkers, include_dirs=None,
+                    included_file_cache=None):
     """
     Check an open file against the norm
 
@@ -4350,20 +4393,21 @@ def check_open_file(open_file, checkers, include_dirs=None):
         # is no token to check.
         return None
 
-    root_expr = parse(tokens, include_dirs)
+    root_expr = parse(tokens, include_dirs, included_file_cache)
     for checker in checkers:
         checker.check_source(source, tokens, root_expr)
     return source
 
 
-def check_file(file_path, checkers, include_dirs=None):
+def check_file(file_path, checkers, include_dirs=None, included_file_cache=None):
     """
     Open a file and check it against the norm.
 
     Return the file source or None.
     """
     with open(file_path) as open_file:
-        source = check_open_file(open_file, checkers, include_dirs)
+        source = check_open_file(open_file, checkers, include_dirs,
+                                 included_file_cache)
     return source
 
 
@@ -4389,6 +4433,7 @@ class Program:
         self.verbose = options.verbose
         self.colors = os.isatty(sys.stdout.fileno())
         self.sources = {}
+        self._included_file_cache = IncludedFileCache()
 
     def _add_issue(self, issue):
         assert isinstance(issue, StyleIssue)
@@ -4463,7 +4508,8 @@ class Program:
         if self.verbose:
             print(self._colorize('black', file_path))
         source = check_file(file_path, self.checkers,
-                            include_dirs=include_dirs)
+                            include_dirs=include_dirs,
+                            included_file_cache=self._included_file_cache)
         if source is not None:
             self.sources[file_path] = source
 
