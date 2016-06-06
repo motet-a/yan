@@ -176,18 +176,20 @@ class Token:
         )
 
 
-class AbstractIssue:
+class StyleIssue:
     """
     Represents a style issue reported by the checker.
     """
 
-    def __init__(self, message, position):
+    def __init__(self, message, position, level='error'):
         """
         message: A string describing the issue
         position: The Position of the issue
         """
+        assert level in 'note warn error syntax-error'.split()
         assert isinstance(message, str)
         assert isinstance(position, Position)
+        self._level = level
         self._message = message
         self._position = position
 
@@ -207,25 +209,29 @@ class AbstractIssue:
         """
         return self._position
 
+    @property
+    def level(self):
+        return self._level
+
     def __str__(self):
         """
         Return an user-friendly string describing the issue and
         its position
         """
-        return "{}: {}".format(self.position, self.message)
+        return str(self.position) + ': ' + self.level + ': ' + self.message
 
 
-class NSyntaxError(Exception, AbstractIssue):
+class NSyntaxError(Exception, StyleIssue):
     """
     Represents a syntax error.
     """
 
     def __init__(self, message, position):
         Exception.__init__(self, message)
-        AbstractIssue.__init__(self, message, position)
+        StyleIssue.__init__(self, message, position, 'syntax-error')
 
     def __str__(self):
-        return AbstractIssue.__str__(self)
+        return StyleIssue.__str__(self)
 
 
 def raise_expected_string(expected_string, position):
@@ -1923,9 +1929,10 @@ class FileInclusion(YanDirective):
 
 
 class PreprocessorResult:
-    def __init__(self, tokens, directives):
+    def __init__(self, tokens, directives, issues):
         self._tokens = tokens[:]
         self._directives = directives[:]
+        self._issues = issues[:]
 
     @property
     def tokens(self):
@@ -1934,6 +1941,10 @@ class PreprocessorResult:
     @property
     def directives(self):
         return self._directives[:]
+
+    @property
+    def issues(self):
+        return self._issues[:]
 
     def append(self, o):
         if isinstance(o, Token):
@@ -1945,7 +1956,8 @@ class PreprocessorResult:
 
     def __add__(self, other):
         return PreprocessorResult(self.tokens + other.tokens,
-                                  self.directives + other.directives)
+                                  self.directives + other.directives,
+                                  self.issues + other.issues)
 
 
 def get_included_file_path(dir_path,
@@ -1989,6 +2001,21 @@ class Preprocessor(TokenReader):
         if include_dirs is None:
             include_dirs = []
         self._include_dirs = include_dirs[:]
+        self._issues = []
+
+    @property
+    def issues(self):
+        return self._issues[:]
+
+    def _warn(self, message, position=None):
+        if position is None:
+            position = self.position
+        self._issues.append(StyleIssue(message, position, level='warn'))
+
+    def _note(self, message, position=None):
+        if position is None:
+            position = self.position
+        self._issues.append(StyleIssue(message, position, level='note'))
 
     @staticmethod
     def _get_name_and_system(directive_string, position):
@@ -2012,17 +2039,16 @@ class Preprocessor(TokenReader):
         elif quoted_name.startswith('"') and quoted_name.endswith('"'):
             return name, False
         else:
-            raise SyntaxError('Invalid #include directive', position)
+            raise NSyntaxError('Invalid #include directive', position)
 
-    @staticmethod
-    def _preprocess_system_include(name):
+    def _preprocess_system_include(self, name, position):
         """
         Returns an IncludedFile on success.
         Returns None if there is no system header with the given name.
         """
         system_headers = _get_system_header_types()
         if name not in system_headers:
-            print('Warning: Header not found: {!r}'.format(name))
+            self._note('Header not found: {!r}'.format(name), position)
             return None
         return IncludedFile(True, name)
 
@@ -2056,7 +2082,7 @@ class Preprocessor(TokenReader):
                                                     name, system,
                                                     self._include_dirs)
         if included_file_path is None:
-            return self._preprocess_system_include(name)
+            return self._preprocess_system_include(name, directive.begin)
         else:
             return self._preprocess_local_include(included_file_path)
 
@@ -2100,10 +2126,9 @@ class Preprocessor(TokenReader):
         directive = Preprocessor._get_yan_directive_comment(comment.string)
         if directive is None:
             return self._preprocess_token(token_index)
-        print('{}: Yan comment directive {!r}'.format(comment.begin,
-                                                      directive))
+        self._note('Yan comment directive', comment.begin)
         if directive == 'parser on':
-            raise SyntaxError('The parser is already enabled', comment.begin)
+            raise NSyntaxError('The parser is already enabled', comment.begin)
         if directive == 'parser off':
             self._skip_until_parser_on()
         if directive.startswith('typedef'):
@@ -2133,14 +2158,14 @@ class Preprocessor(TokenReader):
 
         Return a PreprocessorResult.
         """
-        result = PreprocessorResult([], [])
+        result = PreprocessorResult([], [], [])
         while True:
             i = len(result.tokens)
             token = self._preprocess_token(i)
             if token is None:
                 break
             result.append(token)
-        return result
+        return result + PreprocessorResult([], [], self.issues)
 
 
 def preprocess(tokens, include_dirs=None):
@@ -2198,6 +2223,11 @@ class Parser(TokenReader):
         self._included_files = []
         self._included_file_cache = included_file_cache
         self._in_typedef = False
+        self._issues = pp_result.issues
+
+    @property
+    def issues(self):
+        return self._issues[:]
 
     @property
     def file_name(self):
@@ -2258,7 +2288,7 @@ class Parser(TokenReader):
         try:
             parser.parse()
         except NSyntaxError as e:
-            print("In file included from {}:".format(self.file_name))
+            #print("In file included from {}:".format(self.file_name))
             raise e
 
         included_file.types = parser.types
@@ -3221,6 +3251,8 @@ def argument_to_tokens(v):
 def parse(v, include_directories=None, included_file_cache=None):
     """
     v: a string or a list of tokens
+
+    Return a tuple (expr, issues)
     """
 
     if include_directories is None:
@@ -3240,38 +3272,27 @@ def parse(v, include_directories=None, included_file_cache=None):
         print()
         print('\n'.join(repr(t) for t in tree.tokens))
     assert tokens == tree.tokens
-    return tree
+    return tree, parser.issues
 
 
 def parse_statement(v):
     """
     v: a string or a list of tokens
+
+    Return a tuple (expr, issues)
     """
     parser = Parser(argument_to_tokens(v))
-    return parser.parse_statement()
+    return parser.parse_statement(), parser.issues
 
 
 def parse_expr(v):
     """
     v: a string or a list of tokens
-    Can return None
+
+    Return a tuple (expr, issues). 'expr' can be None.
     """
     parser = Parser(argument_to_tokens(v))
-    return parser.parse_expression()
-
-
-class StyleIssue(AbstractIssue):
-    def __init__(self, message, position, level='error'):
-        assert level in 'warn error'.split()
-        super().__init__(message, position)
-        self._level = level
-
-    @property
-    def level(self):
-        return self._level
-
-    def __str__(self):
-        return str(self.position) + ': ' + self.level + ': ' + self.message
+    return parser.parse_expression(), parser.issues
 
 
 class StyleChecker:
@@ -4314,6 +4335,11 @@ def get_argument_parser(checkers):
                         action='store_true',
                         help="enable warnings")
 
+    parser.add_argument('--json',
+                        action='store_true',
+                        help="JSON output (this is not really "
+                        "human-readable)")
+
     help_str = 'tabulation width (defaults to {})'.format(
         StyleChecker.DEFAULT_TAB_WIDTH)
     parser.add_argument('--tab-width',
@@ -4386,22 +4412,29 @@ def check_open_file(open_file, checkers, include_dirs=None,
     """
     Check an open file against the norm
 
-    Return the file source or None.
+    Return a tuple (file_source, issues).
     """
     if include_dirs is None:
         include_dirs = []
     source = open_file.read()
-    tokens = lex(source, file_name=open_file.name)
-    if len(tokens) == 0:
-        _empty_file_issue(open_file.name, checkers[0].issue)
-        # We must return here since some checkers fails if there
-        # is no token to check.
-        return None
 
-    root_expr = parse(tokens, include_dirs, included_file_cache)
+    try:
+        tokens = lex(source, file_name=open_file.name)
+        if len(tokens) == 0:
+            _empty_file_issue(open_file.name, checkers[0].issue)
+            # We must return here since some checkers fails if there
+            # is no token to check.
+            return source, []
+
+        root_expr, issues = parse(tokens, include_dirs, included_file_cache)
+
+    except NSyntaxError as e:
+        return source, [e]
+
     for checker in checkers:
         checker.check_source(source, tokens, root_expr)
-    return source
+
+    return source, issues
 
 
 def check_file(file_path, checkers, include_dirs=None,
@@ -4409,12 +4442,13 @@ def check_file(file_path, checkers, include_dirs=None,
     """
     Open a file and check it against the norm.
 
-    Return the file source or None.
+    Return a tuple (file_source, issues).
     """
     with open(file_path) as open_file:
-        source = check_open_file(open_file, checkers, include_dirs,
-                                 included_file_cache)
-    return source
+        source, issues = check_open_file(open_file, checkers,
+                                         include_dirs,
+                                         included_file_cache)
+    return source, issues
 
 
 class Program:
@@ -4445,29 +4479,81 @@ class Program:
         assert isinstance(issue, StyleIssue)
         self._issues.append(issue)
 
+    def _add_issues(self, issues):
+        for issue in issues:
+            self._add_issue(issue)
+
+    def _get_line_at(self, position):
+        """
+        Returns the whole line at the given position or None
+        """
+        file_name = position.file_name
+        if file_name not in self.sources:
+            return None
+        source = self.sources[file_name]
+        lines = source.splitlines()
+        if len(lines) == 0:
+            return ''
+        return lines[position.line - 1]
+
+    def _get_visible_column(self, position):
+        """
+        Returns the visible column index at the given position or -1
+        """
+        line = self._get_line_at(position)
+        if line is None:
+            return -1
+        left = line[:position.column - 1]
+        # XXX: hack hack hack
+        return self.checkers[0].get_visible_width(left, position)
+
     def print_issue(self, issue):
         if not self.options.warn and issue.level == 'warn':
             return
 
-        string = self._colorize('white', str(issue.position) + ': ', True)
-        color = 'red' if issue.level == 'error' else 'yellow'
+        bold = issue.level != 'note'
+        string = self._colorize('white', str(issue.position) + ': ', bold)
+        color = 'red'
+        if issue.level == 'warn':
+            color = 'yellow'
+        if issue.level == 'note':
+            color = 'blue'
         string += self._colorize(color, str(issue.level) + ': ', True)
-        string += self._colorize('white', issue.message, True)
+        string += self._colorize('white', issue.message, bold)
         print(string)
 
-        file_name = issue.position.file_name
-        if file_name not in self.sources:
+        line = self._get_line_at(issue.position)
+        if line is None:
             return
-        source = self.sources[file_name]
-        line = source.splitlines()[issue.position.line - 1]
-        left = line[:issue.position.column - 1]
-        # XXX: hack hack hack
-        width = self.checkers[0].get_visible_width(left, issue.position)
         print(line)
+        visible_column_index = self._get_visible_column(issue.position)
         marker = self._colorize('green', '^', True)
-        print(' ' * width + marker)
+        print(' ' * visible_column_index + marker)
+
+    def _position_to_dict(self, position):
+        return {
+            'file_name': position.file_name,
+            'index': position.index,
+            'line': position.line,
+            'column': position.column,
+            'visibleColumn': self._get_visible_column(position),
+        }
+
+    def _issue_to_dict(self, issue):
+        return {
+            'level': issue.level,
+            'message': issue.message,
+            'position': self._position_to_dict(issue.position),
+        }
+
+    def _issues_to_dict(self):
+        return [self._issue_to_dict(i) for i in self._issues]
 
     def print_issues(self):
+        if self.options.json:
+            import json
+            print(json.dumps(self._issues_to_dict()))
+            return
         for issue in self.issues:
             self.print_issue(issue)
 
@@ -4501,8 +4587,9 @@ class Program:
         return colorize(style_name, string, bold)
 
     def _check_dir(self, path, include_dirs):
-        message = 'checking directory {!r}'.format(path)
-        print(self._colorize('blue', message))
+        if not self.options.json:
+            message = 'checking directory {!r}'.format(path)
+            print(self._colorize('blue', message))
         include_dirs += get_include_dirs_from_makefile(path)
         for file_name in os.listdir(path):
             if file_name.startswith('.'):
@@ -4516,11 +4603,13 @@ class Program:
     def _check_file(self, file_path, include_dirs):
         if self.verbose:
             print(self._colorize('black', file_path))
-        source = check_file(file_path, self.checkers,
-                            include_dirs=include_dirs,
-                            included_file_cache=self._included_file_cache)
-        if source is not None:
-            self.sources[file_path] = source
+        source, issues = check_file(file_path,
+                                    self.checkers,
+                                    include_dirs,
+                                    self._included_file_cache)
+        assert source is not None
+        self.sources[file_path] = source
+        self._add_issues(issues)
 
 
 def main():

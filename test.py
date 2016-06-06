@@ -170,7 +170,9 @@ class TestParser(unittest.TestCase):
     def checkDecl(self, source, expected_result=None, parse_func=parse):
         if expected_result is None:
             expected_result = source
-        tree = parse_func(source)
+        tree, issues = parse_func(source)
+        issues = [i for i in issues if i.level != 'note']
+        self.assertEqual(len(issues), 0)
         result = str(tree).rstrip('\n')
         self.assertEqual(result, expected_result)
 
@@ -406,7 +408,7 @@ class TestParser(unittest.TestCase):
             parse('int main() {//bug\n}')
 
     def test_selection(self):
-        expr = parse_expr('1 + 1')
+        expr, _ = parse_expr('1 + 1')
         plus = expr.select('binary_operation')
         assert len(plus) == 1
         assert isinstance(list(plus)[0], yan.BinaryOperationExpr)
@@ -422,10 +424,10 @@ class TestParser(unittest.TestCase):
             assert isinstance(child, yan.LiteralExpr)
 
         with self.assertRaises(ValueError):
-            parse_expr('123').select('')
+            parse_expr('123')[0].select('')
 
         with self.assertRaises(ValueError):
-            parse_expr('123').select('eiaueiuaeiua')
+            parse_expr('123')[0].select('eiaueiuaeiua')
 
 
 def test_file(test_name, error_messages=None):
@@ -445,7 +447,10 @@ def test_file(test_name, error_messages=None):
     file_path = 'test/' + test_name
     if not file_path.endswith('.h'):
         file_path += '.c'
-    yan.check_file(file_path, checkers)
+    _, issues = yan.check_file(file_path, checkers)
+    issues = [i for i in issues if i.level != 'note']
+    if len(issues) > 0:
+        raise Exception(str(issues[0]))
     if len(error_messages) > 0:
         raise Exception('Expected error messages {}'.format(error_messages))
 
