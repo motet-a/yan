@@ -4302,13 +4302,17 @@ def get_argument_parser(checkers):
                         nargs='*',
                         help='source files or directories to check')
 
-    parser.add_argument('-I',
+    parser.add_argument('--include-dir', '-I',
                         action='append',
                         help="add a directory to the header search path")
 
     parser.add_argument('--verbose', '-v',
                         action='store_true',
                         help="verbose output")
+
+    parser.add_argument('--warn', '-W',
+                        action='store_true',
+                        help="enable warnings")
 
     help_str = 'tabulation width (defaults to {})'.format(
         StyleChecker.DEFAULT_TAB_WIDTH)
@@ -4400,7 +4404,8 @@ def check_open_file(open_file, checkers, include_dirs=None,
     return source
 
 
-def check_file(file_path, checkers, include_dirs=None, included_file_cache=None):
+def check_file(file_path, checkers, include_dirs=None,
+               included_file_cache=None):
     """
     Open a file and check it against the norm.
 
@@ -4428,7 +4433,7 @@ class Program:
             checker.configure(options)
 
         self._issues = []
-        self.include_dirs = options.I
+        self.include_dirs = options.include_dir
         if self.include_dirs is None:
             self.include_dirs = []
         self.verbose = options.verbose
@@ -4441,6 +4446,9 @@ class Program:
         self._issues.append(issue)
 
     def print_issue(self, issue):
+        if not self.options.warn and issue.level == 'warn':
+            return
+
         string = self._colorize('white', str(issue.position) + ': ', True)
         color = 'red' if issue.level == 'error' else 'yellow'
         string += self._colorize(color, str(issue.level) + ': ', True)
