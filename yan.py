@@ -3856,6 +3856,36 @@ class DeclarationChecker(StyleChecker):
             self.check_new_line_constistency(decl)
 
 
+class DeclaratorChecker(StyleChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+
+    def _check_function(self, source, function):
+        self.check_margin(source,
+                          function.declarator.last_token,
+                          0,
+                          function.parameters.first_token)
+
+    def check_source(self, source, tokens, expr):
+        for func in expr.select('function'):
+            self._check_function(source, func)
+
+
+class CallChecker(StyleChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+
+    def _check_call(self, source, call):
+        self.check_margin(source,
+                          call.expression.last_token,
+                          0,
+                          call.left_paren)
+
+    def check_source(self, source, tokens, expr):
+        for func in expr.select('call'):
+            self._check_call(source, func)
+
+
 class OneStatementByLineChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
@@ -4377,15 +4407,17 @@ def create_checkers(issue_handler):
     checkers_classes = [
         BinaryOpSpaceChecker,
         BraceChecker,
+        CallChecker,
         CommaChecker,
         CommentChecker,
         DeclarationChecker,
         DeclaratorAlignmentChecker,
+        DeclaratorChecker,
         DirectiveIndentationChecker,
         EmptyLineChecker,
         EmptyLineInFunctionChecker,
-        FunctionLengthChecker,
         FunctionCountChecker,
+        FunctionLengthChecker,
         HeaderChecker,
         HeaderCommentChecker,
         IndentationChecker,

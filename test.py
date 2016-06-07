@@ -592,6 +592,13 @@ class TestFiles(unittest.TestCase):
     def test_bug_invalid_name_in_initializer(self):
         test_file('bug_invalid_name_in_initializer')
 
+    def test_space_between_func_declarator_and_args(self):
+        test_file('space_between_func_declarator_and_args',
+                  "Expected 0 spaces or tabs between 'main' and '('")
+
+    def test_space_between_func_name_and_args(self):
+        test_file('space_between_func_name_and_args',
+                  "Expected 0 spaces or tabs between 'some_function' and '('")
 
 if __name__ == '__main__':
     unittest.main()
