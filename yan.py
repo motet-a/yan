@@ -3759,6 +3759,29 @@ class KeywordSpaceChecker(StyleChecker):
                 self.check_margin(source, token, ' ', next_token)
 
 
+class ParenChecker(StyleChecker):
+    def __init__(self, issue_handler):
+        super().__init__(issue_handler)
+
+    def _check_paren_expr(self, source, paren):
+        if isinstance(paren, CallExpr):
+            inner = paren.arguments
+        else:
+            inner = paren.expression
+        if len(inner.tokens) == 0:
+            self.check_margin(source, paren.left_paren, 0, paren.right_paren)
+            return
+        self.check_margin(source, paren.left_paren, 0, inner.first_token)
+        self.check_margin(source, inner.last_token, 0, paren.right_paren)
+        #self.check_margin(source, token, ' ', next_token)
+
+    def check_source(self, source, tokens, expr):
+        for paren in expr.select('paren'):
+            self._check_paren_expr(source, paren)
+        for call in expr.select('call'):
+            self._check_paren_expr(source, call)
+
+
 class FunctionLengthChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
@@ -4425,6 +4448,7 @@ def create_checkers(issue_handler):
         LineLengthChecker,
         NameChecker,
         OneStatementByLineChecker,
+        ParenChecker,
         ReturnChecker,
         SourceFileChecker,
         SupinfoChecker,
