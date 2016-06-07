@@ -2288,7 +2288,7 @@ class Parser(TokenReader):
         try:
             parser.parse()
         except NSyntaxError as e:
-            #print("In file included from {}:".format(self.file_name))
+            # print("In file included from {}:".format(self.file_name))
             raise e
 
         included_file.types = parser.types
@@ -2301,7 +2301,6 @@ class Parser(TokenReader):
 
     def _expand_included_file(self, included_file):
         assert isinstance(included_file, IncludedFile)
-        # print('expand included file {!r}'.format(included_file.path))
 
         if self._is_already_included(included_file):
             return
@@ -3600,7 +3599,7 @@ class HeaderCommentChecker(StyleChecker):
                            help="check the username in header comments")
         return group
 
-    def check_username(self, login, position):
+    def _check_username(self, login, position):
         if not self.username_check_enabled:
             return
         if not re.match(r'\w+_\w', login):
@@ -3610,21 +3609,21 @@ class HeaderCommentChecker(StyleChecker):
     def check_line(self, i, line, position):
         if i == 3:
             login = line.split()[-1]
-            self.check_username(login, position)
+            self._check_username(login, position)
             if not line.startswith("** Made by"):
                 self.error("Invalid 'Made by' line", position)
         if i == 6:
             login = line.split()[-1]
-            self.check_username(login, position)
+            self._check_username(login, position)
             if not line.startswith("** Started on"):
                 self.error("Invalid 'Started on' line", position)
         if i == 7:
             login = line.split()[-1]
-            self.check_username(login, position)
+            self._check_username(login, position)
             if not line.startswith("** Last update"):
                 self.error("Invalid 'Last update' line", position)
 
-    def check_header(self, token):
+    def _check_header(self, token):
         lines = token.string.splitlines()
         if len(lines) != 9:
             self.error('The header must be 9 lines long', token.begin)
@@ -3634,7 +3633,7 @@ class HeaderCommentChecker(StyleChecker):
     def check(self, tokens, expr):
         for token in tokens:
             if token.kind == 'comment' and token.begin.line == 1:
-                self.check_header(token)
+                self._check_header(token)
                 return
         self.error("No header comment", tokens[0].begin)
 
@@ -3643,7 +3642,7 @@ class CommentChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
-    def get_all_tokens_in_expr(self, tokens, expr):
+    def _get_all_tokens_in_expr(self, tokens, expr):
         first = expr.first_token
         last = expr.last_token
         all_tokens = tokens[tokens.index(first):tokens.index(last) + 1]
@@ -3651,7 +3650,7 @@ class CommentChecker(StyleChecker):
         assert last == all_tokens[-1]
         return all_tokens
 
-    def check_comment(self, comment):
+    def _check_comment(self, comment):
         if comment.begin.column != 1:
             self.error("A comment must begin at the first column",
                        comment.begin)
@@ -3677,11 +3676,11 @@ class CommentChecker(StyleChecker):
     def check(self, tokens, expr):
         for token in tokens:
             if token.kind == 'comment':
-                self.check_comment(token)
+                self._check_comment(token)
 
         funcs = expr.select('function_definition')
         for func in funcs:
-            func_tokens = self.get_all_tokens_in_expr(tokens, func)
+            func_tokens = self._get_all_tokens_in_expr(tokens, func)
             for token in func_tokens:
                 if token.kind == 'comment':
                     self.error('Comment inside a function', token.begin)
@@ -3727,7 +3726,7 @@ class ReturnChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
-    def check_return(self, statement_expr):
+    def _check_return(self, statement_expr):
         return_expr = statement_expr.expression
         if return_expr.expression is None:
             return
@@ -3742,7 +3741,7 @@ class ReturnChecker(StyleChecker):
         for statement in expr.select('statement'):
             if (isinstance(statement.expression, JumpExpr) and
                     statement.expression.keyword.string == 'return'):
-                self.check_return(statement)
+                self._check_return(statement)
 
 
 class KeywordSpaceChecker(StyleChecker):
@@ -3773,7 +3772,6 @@ class ParenChecker(StyleChecker):
             return
         self.check_margin(source, paren.left_paren, 0, inner.first_token)
         self.check_margin(source, inner.last_token, 0, paren.right_paren)
-        #self.check_margin(source, token, ' ', next_token)
 
     def check_source(self, source, tokens, expr):
         for paren in expr.select('paren'):
@@ -3843,21 +3841,21 @@ class DeclarationChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
-    def check_struct(self, struct):
+    def _check_struct(self, struct):
         if struct.identifier is not None:
             self.check_same_line(struct.struct, struct.identifier)
 
-    def check_declaration(self, decl):
+    def _check_declaration(self, decl):
         if len(decl.declarators.children) > 0:
             self.check_same_line(decl.declarators.last_token,
                                  decl.semicolon)
 
-    def check_function_def(self, func_def):
+    def _check_function_def(self, func_def):
         if func_def.type_expr is not None:
             self.check_same_line(func_def.type_expr.last_token,
                                  func_def.declarator.first_token)
 
-    def check_new_line_constistency(self, expr):
+    def _check_new_line_constistency(self, expr):
         children = expr.children
         prev = None
         for child in children:
@@ -3867,16 +3865,16 @@ class DeclarationChecker(StyleChecker):
 
     def check(self, tokens, expr):
         for struct in expr.select('struct'):
-            self.check_struct(struct)
+            self._check_struct(struct)
         for decl in expr.select('declaration'):
-            self.check_declaration(decl)
-            self.check_new_line_constistency(decl)
+            self._check_declaration(decl)
+            self._check_new_line_constistency(decl)
         for type_expr in expr.select('type'):
-            self.check_new_line_constistency(type_expr)
+            self._check_new_line_constistency(type_expr)
         for func in expr.select('function_definition'):
-            self.check_function_def(func)
+            self._check_function_def(func)
         for decl in expr.select('function'):
-            self.check_new_line_constistency(decl)
+            self._check_new_line_constistency(decl)
 
 
 class DeclaratorChecker(StyleChecker):
@@ -3939,7 +3937,7 @@ class IndentationChecker(StyleChecker):
         super().__init__(issue_handler)
         self.level = 0
 
-    def check_begin_indentation(self, lines, expr):
+    def _check_begin_indentation(self, lines, expr):
         if isinstance(expr, Expr):
             token = expr.first_token
         else:
@@ -3948,7 +3946,7 @@ class IndentationChecker(StyleChecker):
         first_line = lines[begin.line - 1]
         self.check_indent(first_line, self.level, begin, 1)
 
-    def check_end_indentation(self, lines, expr):
+    def _check_end_indentation(self, lines, expr):
         end = expr.last_token.end
         first_line = lines[end.line - 1]
         self.check_indent(first_line, self.level, end, 1)
@@ -3969,7 +3967,7 @@ class IndentationChecker(StyleChecker):
         )
 
         if isinstance(expr, indented_classes):
-            self.check_begin_indentation(lines, expr)
+            self._check_begin_indentation(lines, expr)
 
         if isinstance(expr, indentor_classes):
             self.level += 2
@@ -3979,7 +3977,7 @@ class IndentationChecker(StyleChecker):
             self.check_expr(lines, expr.statement)
             if expr.else_statement is not None:
                 self.level -= 2
-                self.check_begin_indentation(lines, expr.else_token)
+                self._check_begin_indentation(lines, expr.else_token)
                 self.level += 2
                 if isinstance(expr.else_statement, IfExpr):
                     self.level -= 2
@@ -3994,7 +3992,7 @@ class IndentationChecker(StyleChecker):
             self.level -= 2
 
         if isinstance(expr, CompoundExpr):
-            self.check_end_indentation(lines, expr)
+            self._check_end_indentation(lines, expr)
 
     def check_source(self, source, tokens, expr):
         self.level = 0
@@ -4043,7 +4041,7 @@ class CommaChecker(StyleChecker):
         return (self.get_previous_token(tokens, i),
                 self.get_next_token(tokens, i))
 
-    def check_semicolon(self, source, tokens, i, token):
+    def _check_semicolon(self, source, tokens, i, token):
         prev_token, next_token = self._get_previous_and_next(tokens, i)
         if prev_token is None:
             self.error("Unexpected ';'", token.begin)
@@ -4063,7 +4061,7 @@ class CommaChecker(StyleChecker):
             self.error("{!r} on the same line than the previous ';'".format(
                 next_token.string), next_token.begin)
 
-    def check_comma(self, source, tokens, i, token):
+    def _check_comma(self, source, tokens, i, token):
         prev_token, next_token = self._get_previous_and_next(tokens, i)
         assert prev_token is not None
         assert next_token is not None
@@ -4074,26 +4072,26 @@ class CommaChecker(StyleChecker):
     def check_source(self, source, tokens, expr):
         for i, token in enumerate(tokens):
             if token.string == ',':
-                self.check_comma(source, tokens, i, token)
+                self._check_comma(source, tokens, i, token)
             elif token.string == ';':
-                self.check_semicolon(source, tokens, i, token)
+                self._check_semicolon(source, tokens, i, token)
 
 
 class HeaderChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
-    def check_declarator(self, declarator):
+    def _check_declarator(self, declarator):
         if isinstance(declarator, (CommaListExpr, PointerExpr)):
             for child in declarator.children:
-                self.check_declarator(child)
+                self._check_declarator(child)
             return
         elif isinstance(declarator, FunctionExpr):
             return
         self.error('This declaration is forbidden in a header file',
                    declarator.first_token.begin)
 
-    def check_declaration(self, declaration):
+    def _check_declaration(self, declaration):
         type_expr = declaration.type_expr
         if type_expr.is_typedef:
             return
@@ -4101,7 +4099,7 @@ class HeaderChecker(StyleChecker):
             self.warn('Global variable declaration',
                       declaration.first_token.begin)
             return
-        self.check_declarator(declaration.declarators)
+        self._check_declarator(declaration.declarators)
 
     @staticmethod
     def _remove_leading_hash(directive):
@@ -4153,7 +4151,7 @@ class HeaderChecker(StyleChecker):
                 self.error('This is forbidden in a header file',
                            child.first_token.begin)
                 continue
-            self.check_declaration(child)
+            self._check_declaration(child)
 
 
 class SourceFileChecker(StyleChecker):
