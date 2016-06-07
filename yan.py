@@ -1801,6 +1801,7 @@ def _get_system_header_types():
         'setjmp.h':     'jmp_buf',
         'signal.h':     'sighandler_t sigset_t',
         'stdarg.h':     'va_list',
+        'stdbool.h':    'bool',
         'stddef.h':     stddef,
         'stdint.h':     stdint,
         'stdio.h':      stddef + ' FILE',
