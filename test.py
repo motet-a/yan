@@ -600,5 +600,8 @@ class TestFiles(unittest.TestCase):
         test_file('space_between_func_name_and_args',
                   "Expected 0 spaces or tabs between 'some_function' and '('")
 
+    def test_cplusplus(self):
+        test_file('cplusplus.h')
+
 if __name__ == '__main__':
     unittest.main()

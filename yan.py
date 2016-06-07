@@ -1690,8 +1690,12 @@ class TokenReader:
     """
 
     def __init__(self, tokens):
-        self._tokens = tokens
+        self._tokens = tokens[:]
         self._index = 0
+
+    @property
+    def tokens(self):
+        return self._tokens[:]
 
     @property
     def index(self):
@@ -2086,6 +2090,30 @@ class Preprocessor(TokenReader):
         else:
             return self._preprocess_local_include(included_file_path)
 
+    def _token_is_if(self, token):
+        if token.kind != 'directive':
+            return False
+        string = self._remove_directive_leading_hash(token)
+        return string.startswith('if')
+
+    def _token_is_endif(self, token):
+        if token.kind != 'directive':
+            return False
+        string = self._remove_directive_leading_hash(token)
+        return string.startswith('endif')
+
+    def _skip_until_endif(self):
+        level = 1
+        while level > 0:
+            if not self.has_more:
+                self._warn("Expected '#endif'")
+                return
+            token = self.next()
+            if self._token_is_if(token):
+                level += 1
+            elif self._token_is_endif(token):
+                level -= 1
+
     def _preprocess_directive(self, token_index, directive):
         """
         Return a FileInclusion or None.
@@ -2097,7 +2125,9 @@ class Preprocessor(TokenReader):
                 return None
             return FileInclusion(token_index, inc_file)
         if string.startswith('ifdef'):
-            string = string[5].strip()
+            if '__cplusplus' in string:
+                self._skip_until_endif()
+                return None
             return None
 
     @staticmethod
@@ -2165,7 +2195,8 @@ class Preprocessor(TokenReader):
             if token is None:
                 break
             result.append(token)
-        return result + PreprocessorResult([], [], self.issues)
+        result = result + PreprocessorResult([], [], self.issues)
+        return result
 
 
 def preprocess(tokens, include_dirs=None):
@@ -2207,23 +2238,30 @@ class Parser(TokenReader):
     """
     # pylint: disable=invalid-name
 
-    def __init__(self, tokens, include_dirs=None, included_file_cache=None):
+    def __init__(self,
+                 preprocessor_result,
+                 file_name='<unknown file>',
+                 include_dirs=None,
+                 included_file_cache=None):
+        """
+        Create a new parser
+        """
+        assert isinstance(file_name, str)
+        assert isinstance(preprocessor_result, PreprocessorResult)
         if included_file_cache is None:
             included_file_cache = IncludedFileCache()
         assert isinstance(included_file_cache, IncludedFileCache)
         if include_dirs is None:
             include_dirs = []
-        self._source_tokens = tokens[:]
+        TokenReader.__init__(self, preprocessor_result.tokens)
+        self._directives = preprocessor_result.directives[:]
+        self._file_name = file_name
         self._include_dirs = include_dirs[:]
-        pp_result = preprocess(tokens, include_dirs)
-        self._directives = pp_result.directives[:]
-
-        TokenReader.__init__(self, pp_result.tokens)
         self._types = []
         self._included_files = []
         self._included_file_cache = included_file_cache
         self._in_typedef = False
-        self._issues = pp_result.issues
+        self._issues = preprocessor_result.issues
 
     @property
     def issues(self):
@@ -2234,10 +2272,7 @@ class Parser(TokenReader):
         """
         Return the file name or '<unknown file>'.
         """
-        tokens = self._source_tokens
-        if len(tokens) == 0:
-            return '<unknown file>'
-        return tokens[0].begin.file_name
+        return self._file_name
 
     def _is_already_included(self, included_file):
         assert isinstance(included_file, IncludedFile)
@@ -2281,8 +2316,12 @@ class Parser(TokenReader):
 
         with open(path) as h:
             source = h.read()
-        tokens = lex(source, file_name=path)
-        parser = Parser(tokens, self._include_dirs, self._included_file_cache)
+        source_tokens = lex(source, file_name=path)
+        pp_result = preprocess(source_tokens, path)
+        parser = Parser(pp_result,
+                        path,
+                        self._include_dirs,
+                        self._included_file_cache)
         parser.add_types(self.types)
         parser._included_files += self._included_files
         try:
@@ -3239,28 +3278,38 @@ class Parser(TokenReader):
         return self._parse_translation_unit()
 
 
-def argument_to_tokens(v):
+def convert_to_pp_result(v, file_name='<unknown file>', include_dirs=None):
     if isinstance(v, str):
-        v = lex(v)
-    if not isinstance(v, list):
-        raise ValueError('Expected a list of tokens')
+        tokens = lex(v, file_name)
+        return convert_to_pp_result(tokens, file_name, include_dirs)
+    if isinstance(v, list):
+        return preprocess(v, include_dirs)
+    if not isinstance(v, PreprocessorResult):
+        raise ValueError('Expected a PreprocessorResult')
     return v
 
 
-def parse(v, include_directories=None, included_file_cache=None):
+def parse(v,
+          file_name='<unknown file>',
+          include_directories=None,
+          included_file_cache=None):
     """
-    v: a string or a list of tokens
+    v: a string or a preprocessor result
 
     Return a tuple (expr, issues)
     """
+    assert isinstance(file_name, str)
 
     if include_directories is None:
         include_directories = []
 
-    tokens = argument_to_tokens(v)
-    parser = Parser(tokens, include_directories, included_file_cache)
+    pp_result = convert_to_pp_result(v, file_name, include_directories)
+    parser = Parser(pp_result, file_name,
+                    include_directories,
+                    included_file_cache)
     tree = parser.parse()
     assert isinstance(tree, Expr)
+    """
     tokens = preprocess(tokens, include_directories).tokens
     if tokens != tree.tokens:
         if isinstance(v, str):
@@ -3271,6 +3320,7 @@ def parse(v, include_directories=None, included_file_cache=None):
         print()
         print('\n'.join(repr(t) for t in tree.tokens))
     assert tokens == tree.tokens
+    """
     return tree, parser.issues
 
 
@@ -3280,7 +3330,7 @@ def parse_statement(v):
 
     Return a tuple (expr, issues)
     """
-    parser = Parser(argument_to_tokens(v))
+    parser = Parser(convert_to_pp_result(v))
     return parser.parse_statement(), parser.issues
 
 
@@ -3290,7 +3340,7 @@ def parse_expr(v):
 
     Return a tuple (expr, issues). 'expr' can be None.
     """
-    parser = Parser(argument_to_tokens(v))
+    parser = Parser(convert_to_pp_result(v))
     return parser.parse_expression(), parser.issues
 
 
@@ -3303,13 +3353,13 @@ class StyleChecker:
         self.indent_chars = ' \t'
 
     @staticmethod
-    def get_file_name(tokens):
+    def get_file_name(source_tokens):
         """
         Return the name of the file where the tokens arise from.
         """
-        if len(tokens) == 0:
+        if len(source_tokens) == 0:
             return '<unknown file>'
-        return tokens[0].begin.file_name
+        return source_tokens[0].begin.file_name
 
     def create_argument_group(self, parser):
         pass
@@ -3331,16 +3381,17 @@ class StyleChecker:
     def error(self, message, position):
         self.issue(StyleIssue(message, position))
 
-    def check(self, tokens, expr):
-        raise NotImplementedError()
+    def check(self, source_tokens, pp_tokens, expr):
+        raise NotImplementedError('Not implemented in {}'.format(
+            type(self).__name__))
 
-    def check_source(self, source, tokens, expr):
+    def check_source(self, source, source_tokens, pp_tokens, expr):
         """
         Like a StyleChecker, but accepts a string containing the source
         code of the file
         """
         # pylint: disable=unused-argument
-        return self.check(tokens, expr)
+        return self.check(source_tokens, pp_tokens, expr)
 
     def check_same_line(self, token_a, token_b):
         """
@@ -3487,10 +3538,10 @@ class LineChecker(StyleChecker):
         """
         raise NotImplementedError()
 
-    def check_source(self, source, tokens, expr):
+    def check_source(self, source, source_tokens, pp_tokens, expr):
         lines = source.splitlines(True)
         index = 0
-        file_name = self.get_file_name(tokens)
+        file_name = self.get_file_name(source_tokens)
         for line_index, line_and_endl in enumerate(lines):
             line = line_and_endl.rstrip('\n\r')
             begin = Position(file_name,
@@ -3526,9 +3577,9 @@ class EmptyLineChecker(LineChecker):
                 self.error("Empty line", begin)
         self._empty_previous_line = empty
 
-    def check_source(self, source, tokens, expr):
+    def check_source(self, source, source_tokens, pp_tokens, expr):
         self._empty_previous_line = False
-        super().check_source(source, tokens, expr)
+        super().check_source(source, source_tokens, pp_tokens, expr)
 
 
 class EmptyLineInFunctionChecker(StyleChecker):
@@ -3559,7 +3610,7 @@ class EmptyLineInFunctionChecker(StyleChecker):
                 self.error('Expected empty line between declarations and '
                            'statements', decl_end)
 
-    def check(self, tokens, expr):
+    def check(self, source_tokens, pp_tokens, expr):
         for function in expr.select('function_definition'):
             pass
         for compound in expr.select('compound'):
@@ -3630,12 +3681,12 @@ class HeaderCommentChecker(StyleChecker):
         for i, line in enumerate(lines):
             self.check_line(i, line, token.begin)
 
-    def check(self, tokens, expr):
-        for token in tokens:
+    def check(self, source_tokens, pp_tokens, expr):
+        for token in source_tokens:
             if token.kind == 'comment' and token.begin.line == 1:
                 self._check_header(token)
                 return
-        self.error("No header comment", tokens[0].begin)
+        self.error("No header comment", source_tokens[0].begin)
 
 
 class CommentChecker(StyleChecker):
@@ -3673,14 +3724,14 @@ class CommentChecker(StyleChecker):
                 self.error("Expected a space after '**'",
                            comment.begin)
 
-    def check(self, tokens, expr):
-        for token in tokens:
+    def check(self, source_tokens, pp_tokens, expr):
+        for token in source_tokens:
             if token.kind == 'comment':
                 self._check_comment(token)
 
         funcs = expr.select('function_definition')
         for func in funcs:
-            func_tokens = self._get_all_tokens_in_expr(tokens, func)
+            func_tokens = self._get_all_tokens_in_expr(source_tokens, func)
             for token in func_tokens:
                 if token.kind == 'comment':
                     self.error('Comment inside a function', token.begin)
@@ -3690,7 +3741,7 @@ class BinaryOpSpaceChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
-    def check_source(self, source, tokens, expr):
+    def check_source(self, source, source_tokens, pp_tokens, expr):
         bin_ops = expr.select('binary_operation')
         for operation in bin_ops:
             left_token = operation.left.last_token
@@ -3705,7 +3756,7 @@ class UnaryOpSpaceChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
-    def check_source(self, source, tokens, expr):
+    def check_source(self, source, source_tokens, pp_tokens, expr):
         unary_ops = expr.select('unary_operation')
         for operation in unary_ops:
             if operation.postfix:
@@ -3737,7 +3788,7 @@ class ReturnChecker(StyleChecker):
         left_paren = return_expr.expression.left_paren
         self.check_same_line(return_expr.keyword, left_paren)
 
-    def check(self, tokens, expr):
+    def check(self, source_tokens, pp_tokens, expr):
         for statement in expr.select('statement'):
             if (isinstance(statement.expression, JumpExpr) and
                     statement.expression.keyword.string == 'return'):
@@ -3748,12 +3799,12 @@ class KeywordSpaceChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
-    def check_source(self, source, tokens, expr):
+    def check_source(self, source, source_tokens, pp_tokens, expr):
         need_one_space = 'break continue if return while'.split()
-        for i, token in enumerate(tokens):
+        for i, token in enumerate(pp_tokens):
             if token.kind != 'keyword':
                 continue
-            next_token = self.get_next_token(tokens, i)
+            next_token = self.get_next_token(pp_tokens, i)
             if token.string in need_one_space:
                 self.check_margin(source, token, ' ', next_token)
 
@@ -3773,7 +3824,7 @@ class ParenChecker(StyleChecker):
         self.check_margin(source, paren.left_paren, 0, inner.first_token)
         self.check_margin(source, inner.last_token, 0, paren.right_paren)
 
-    def check_source(self, source, tokens, expr):
+    def check_source(self, source, source_tokens, pp_tokens, expr):
         for paren in expr.select('paren'):
             self._check_paren_expr(source, paren)
         for call in expr.select('call'):
@@ -3784,7 +3835,7 @@ class FunctionLengthChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
-    def check(self, tokens, expr):
+    def check(self, source_tokens, pp_tokens, expr):
         funcs = expr.select('function_definition')
         for func in funcs:
             begin = func.compound.left_brace
@@ -3804,7 +3855,7 @@ class FunctionCountChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
-    def check(self, tokens, expr):
+    def check(self, source_tokens, pp_tokens, expr):
         funcs = expr.select('function_definition')
         if len(funcs) > 5:
             self.error('Too many functions in a file (more than 5)',
@@ -3815,9 +3866,9 @@ class DirectiveIndentationChecker(StyleChecker):
     def __init__(self, issue_handler):
         super().__init__(issue_handler)
 
-    def check(self, tokens, expr):
+    def check(self, source_tokens, pp_tokens, expr):
         level = 0
-        for token in tokens:
+        for token in source_tokens:
             if token.kind != 'directive':
                 continue
 
@@ -3863,7 +3914,7 @@ class DeclarationChecker(StyleChecker):
                 self.check_same_line(prev.last_token, child.first_token)
             prev = child
 
-    def check(self, tokens, expr):
+    def check(self, source_tokens, pp_tokens, expr):
         for struct in expr.select('struct'):
             self._check_struct(struct)
         for decl in expr.select('declaration'):
@@ -3887,7 +3938,7 @@ class DeclaratorChecker(StyleChecker):
                           0,
                           function.parameters.first_token)
 
-    def check_source(self, source, tokens, expr):
+    def check_source(self, source, source_tokens, pp_tokens, expr):
         for func in expr.select('function'):
             self._check_function(source, func)
 
@@ -3902,7 +3953,7 @@ class CallChecker(StyleChecker):
                           0,
                           call.left_paren)
 
-    def check_source(self, source, tokens, expr):
+    def check_source(self, source, source_tokens, pp_tokens, expr):
         for func in expr.select('call'):
             self._check_call(source, func)
 
@@ -3928,7 +3979,7 @@ class OneStatementByLineChecker(StyleChecker):
         for child in expr.children:
             self._check_children(child)
 
-    def check(self, tokens, expr):
+    def check(self, source_tokens, pp_tokens, expr):
         self._check_children(expr)
 
 
@@ -3951,7 +4002,7 @@ class IndentationChecker(StyleChecker):
         first_line = lines[end.line - 1]
         self.check_indent(first_line, self.level, end, 1)
 
-    def check_expr(self, lines, expr):
+    def _check_expr(self, lines, expr):
         indented_classes = (
             FunctionDefinitionExpr,
             CompoundExpr,
@@ -3973,20 +4024,20 @@ class IndentationChecker(StyleChecker):
             self.level += 2
 
         if isinstance(expr, IfExpr):
-            self.check_expr(lines, expr.expression)
-            self.check_expr(lines, expr.statement)
+            self._check_expr(lines, expr.expression)
+            self._check_expr(lines, expr.statement)
             if expr.else_statement is not None:
                 self.level -= 2
                 self._check_begin_indentation(lines, expr.else_token)
                 self.level += 2
                 if isinstance(expr.else_statement, IfExpr):
                     self.level -= 2
-                self.check_expr(lines, expr.else_statement)
+                self._check_expr(lines, expr.else_statement)
                 if isinstance(expr.else_statement, IfExpr):
                     self.level += 2
         else:
             for child in expr.children:
-                self.check_expr(lines, child)
+                self._check_expr(lines, child)
 
         if isinstance(expr, indentor_classes):
             self.level -= 2
@@ -3994,11 +4045,12 @@ class IndentationChecker(StyleChecker):
         if isinstance(expr, CompoundExpr):
             self._check_end_indentation(lines, expr)
 
-    def check_source(self, source, tokens, expr):
+    def check_source(self, source, source_tokens, pp_tokens, expr):
         self.level = 0
-        self.check_expr(source.splitlines(), expr)
+        self._check_expr(source.splitlines(), expr)
         if self.level != 0:
-            self.warn('The indentation seems inconsistent', tokens[0].begin)
+            self.warn('The indentation seems inconsistent',
+                      source_tokens[0].begin)
 
 
 class BraceChecker(StyleChecker):
@@ -4024,13 +4076,13 @@ class BraceChecker(StyleChecker):
             self.error('{!r} not alone in its line'.format(token.string),
                        token.begin)
 
-    def check(self, tokens, expr):
+    def check(self, source_tokens, pp_tokens, expr):
         struct_compounds = expr.select('struct compound')
         for compound in expr.select('compound'):
             if compound in struct_compounds:
                 continue
-            self._check_alone_in_line(tokens, compound.left_brace)
-            self._check_alone_in_line(tokens, compound.right_brace)
+            self._check_alone_in_line(pp_tokens, compound.left_brace)
+            self._check_alone_in_line(pp_tokens, compound.right_brace)
 
 
 class CommaChecker(StyleChecker):
@@ -4069,12 +4121,12 @@ class CommaChecker(StyleChecker):
         self.check_margin(source, prev_token, 0, token)
         self.check_margin(source, token, ' ', next_token)
 
-    def check_source(self, source, tokens, expr):
-        for i, token in enumerate(tokens):
+    def check_source(self, source, source_tokens, pp_tokens, expr):
+        for i, token in enumerate(pp_tokens):
             if token.string == ',':
-                self._check_comma(source, tokens, i, token)
+                self._check_comma(source, pp_tokens, i, token)
             elif token.string == ';':
-                self._check_semicolon(source, tokens, i, token)
+                self._check_semicolon(source, pp_tokens, i, token)
 
 
 class HeaderChecker(StyleChecker):
@@ -4103,6 +4155,7 @@ class HeaderChecker(StyleChecker):
 
     @staticmethod
     def _remove_leading_hash(directive):
+        assert directive.kind == 'directive'
         string = directive.string.strip()
         assert string[0] == '#'
         return string[1:].strip()
@@ -4128,6 +4181,7 @@ class HeaderChecker(StyleChecker):
         if token.kind != 'directive':
             self.error('Expected the include guard directive {!r}'.format(
                 '#' + expected_string), token.begin)
+            return
         string = self._remove_leading_hash(token)
         if expected_string != string:
             msg = 'Bad once include guard directive (expected {!r})'.format(
@@ -4142,10 +4196,10 @@ class HeaderChecker(StyleChecker):
         self._check_directive(tokens[2], self._get_define_guard(tokens))
         self._check_directive(tokens[-1], self._get_endif_guard(tokens))
 
-    def check(self, tokens, expr):
-        if not self.get_file_name(tokens).endswith('.h'):
+    def check(self, source_tokens, pp_tokens, expr):
+        if not self.get_file_name(source_tokens).endswith('.h'):
             return
-        self._check_once_include_guard(tokens)
+        self._check_once_include_guard(source_tokens)
         for child in expr.children:
             if not isinstance(child, DeclarationExpr):
                 self.error('This is forbidden in a header file',
@@ -4169,10 +4223,10 @@ class SourceFileChecker(StyleChecker):
     def _check_declaration(self, declaration):
         self.warn('Declaration in source file', declaration.first_token.begin)
 
-    def check(self, tokens, expr):
-        if not self.get_file_name(tokens).endswith('.c'):
+    def check(self, source_tokens, pp_tokens, expr):
+        if not self.get_file_name(source_tokens).endswith('.c'):
             return
-        for token in tokens:
+        for token in source_tokens:
             if token.kind == 'directive':
                 self._check_directive(token)
         for child in expr.children:
@@ -4255,8 +4309,8 @@ class NameChecker(StyleChecker):
         cleaned = cleaned.replace('.', '')
         self._check_lowercase_name(cleaned, Position(file_name))
 
-    def check(self, tokens, expr):
-        self._check_file_name(tokens)
+    def check(self, source_tokens, pp_tokens, expr):
+        self._check_file_name(source_tokens)
 
         global_exprs = expr.children
         for decl in expr.select('declaration'):
@@ -4272,7 +4326,7 @@ class NameChecker(StyleChecker):
         for struct in expr.select('struct'):
             self._check_struct(struct)
 
-        for token in tokens:
+        for token in source_tokens:
             if token.kind != 'directive':
                 continue
             string = token.string[1:].strip()
@@ -4343,7 +4397,7 @@ class DeclaratorAlignmentChecker(StyleChecker):
             return
         self._check_compound(lines, function.compound, indent)
 
-    def check_source(self, source, tokens, expr):
+    def check_source(self, source, source_tokens, pp_tokens, expr):
         lines = source.splitlines()
         compounds_to_check = list(expr.select('compound'))
         for struct in expr.select('struct'):
@@ -4473,20 +4527,28 @@ def check_open_file(open_file, checkers, include_dirs=None,
     source = open_file.read()
 
     try:
-        tokens = lex(source, file_name=open_file.name)
-        if len(tokens) == 0:
+        source_tokens = lex(source, open_file.name)
+        if len(source_tokens) == 0:
             _empty_file_issue(open_file.name, checkers[0].issue)
             # We must return here since some checkers fails if there
             # is no token to check.
             return source, []
 
-        root_expr, issues = parse(tokens, include_dirs, included_file_cache)
+        pp_result = convert_to_pp_result(source_tokens,
+                                         open_file.name,
+                                         include_dirs)
+        root_expr, issues = parse(pp_result,
+                                  open_file.name,
+                                  include_dirs, included_file_cache)
 
     except NSyntaxError as e:
         return source, [e]
 
     for checker in checkers:
-        checker.check_source(source, tokens, root_expr)
+        checker.check_source(source,
+                             source_tokens,
+                             pp_result.tokens,
+                             root_expr)
 
     return source, issues
 
