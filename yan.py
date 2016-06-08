@@ -2005,6 +2005,7 @@ class Preprocessor(TokenReader):
         super().__init__(tokens)
         if include_dirs is None:
             include_dirs = []
+        assert isinstance(include_dirs, list)
         self._include_dirs = include_dirs[:]
         self._issues = []
 
@@ -2254,6 +2255,7 @@ class Parser(TokenReader):
         assert isinstance(included_file_cache, IncludedFileCache)
         if include_dirs is None:
             include_dirs = []
+        assert isinstance(include_dirs, list)
         TokenReader.__init__(self, preprocessor_result.tokens)
         self._directives = preprocessor_result.directives[:]
         self._file_name = file_name
@@ -2318,7 +2320,7 @@ class Parser(TokenReader):
         with open(path) as h:
             source = h.read()
         source_tokens = lex(source, file_name=path)
-        pp_result = preprocess(source_tokens, path)
+        pp_result = preprocess(source_tokens, self._include_dirs)
         parser = Parser(pp_result,
                         path,
                         self._include_dirs,
