@@ -1,5 +1,7 @@
 # Yan — Yet another norminette
 
+[![Build Status](https://travis-ci.org/motet-a/yan.svg?branch=master)](https://travis-ci.org/motet-a/yan)
+
 **Work in progress**
 
 **Yan** stands for "Yet another *norminette*". This is a C brace style
