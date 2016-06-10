@@ -1673,14 +1673,25 @@ def get_include_dirs_from_makefile(directory_path):
         return []
     dirs = []
     for line in makefile_content.splitlines():
-        if line.count('-I') != 1:
+        if '-I' not in line:
             continue
-        i = line.index('-I')
-        words = line[i+2:].split()
-        if words == 0:
-            continue
-        path = os.path.normpath(os.path.join(directory_path, words[0]))
-        dirs.append(path)
+        words = line.split()
+        for i, word in enumerate(words):
+            if '-I' not in word:
+                continue
+
+            path = word[2:]
+            if len(path) == 0:
+                if i == len(words) - 1:
+                    continue
+                path = words[i + 1]
+                if len(path) == 0:
+                    continue
+
+            path = os.path.normpath(os.path.join(directory_path, path))
+            if not os.path.exists(path):
+                continue
+            dirs.append(path)
     return dirs
 
 
@@ -1819,6 +1830,8 @@ def _get_system_header_types():
 class IncludedFile:
     """
     Represents a file included with an #include directive.
+
+    Cache the source to retreive it later for the issue management.
     """
 
     def __init__(self, system, path):
@@ -1830,6 +1843,7 @@ class IncludedFile:
             self._types = _get_system_header_types()[path]
         else:
             self._types = None
+        self._source = None
 
     def __eq__(self, other):
         return (isinstance(other, self.__class__) and
@@ -1837,6 +1851,23 @@ class IncludedFile:
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+    @property
+    def source(self):
+        """
+        Returns the source of the file or None if the file has not been
+        parsed yet.
+        """
+        return self._source
+
+    @source.setter
+    def source(self, new_source):
+        assert isinstance(new_source, str)
+        if self._source is not None:
+            msg = 'The source of the file {!r} is already set'.format(
+                self.path)
+            raise Exception(msg)
+        self._source = new_source
 
     @property
     def system(self):
@@ -1914,19 +1945,26 @@ class FileInclusion(YanDirective):
     Represents an inclusion with an #include directive.
     """
 
-    def __init__(self, token_index, inc_file):
+    def __init__(self, token_index, inc_file, source_token):
         """
         token_index: The index of the removed inclusion in the
         preprocessed token list.
         inc_file: An IncludedFile
+        source_token: The '#include' directive token.
         """
         super().__init__(token_index)
+        assert source_token.kind == 'directive'
         assert isinstance(inc_file, IncludedFile)
         self._file = inc_file
+        self._source_token = source_token
 
     @property
     def file(self):
         return self._file
+
+    @property
+    def source_token(self):
+        return self._source_token
 
     def __repr__(self):
         return '<FileInclusion file={!r} token_index={!r}>'.format(
@@ -2125,7 +2163,7 @@ class Preprocessor(TokenReader):
             inc_file = self._preprocess_include(directive)
             if inc_file is None:
                 return None
-            return FileInclusion(token_index, inc_file)
+            return FileInclusion(token_index, inc_file, directive)
         if string.startswith('ifdef'):
             if '__cplusplus' in string:
                 self._skip_until_endif()
@@ -2303,7 +2341,7 @@ class Parser(TokenReader):
         for type_name in types:
             self.add_type(type_name)
 
-    def _expand_local_include(self, included_file):
+    def _expand_local_include(self, included_file, include_directive_position):
         path = included_file.path
         assert os.path.exists(path)
 
@@ -2317,8 +2355,15 @@ class Parser(TokenReader):
             self.add_types(included_file.types)
             return
 
+        if included_file.source is not None:
+            return
+
         with open(path) as h:
             source = h.read()
+
+        included_file.source = source
+        self._included_file_cache.add_file(included_file)
+
         source_tokens = lex(source, file_name=path)
         pp_result = preprocess(source_tokens, self._include_dirs)
         parser = Parser(pp_result,
@@ -2330,18 +2375,21 @@ class Parser(TokenReader):
         try:
             parser.parse()
         except NSyntaxError as e:
-            # print("In file included from {}:".format(self.file_name))
+            note_msg = "In file included from {!r}:".format(self.file_name)
+            note = StyleIssue(note_msg, include_directive_position,
+                              level='note')
+            self._issues.append(note)
+            self._issues.append(e)
             raise e
 
         included_file.types = parser.types
-        self._included_file_cache.add_file(included_file)
         self.add_types(parser.types)
 
     def _expand_system_include(self, included_file):
         assert included_file.system
         self.add_types(included_file.types)
 
-    def _expand_included_file(self, included_file):
+    def _expand_included_file(self, included_file, include_directive_position):
         assert isinstance(included_file, IncludedFile)
 
         if self._is_already_included(included_file):
@@ -2351,7 +2399,8 @@ class Parser(TokenReader):
         if included_file.system:
             self._expand_system_include(included_file)
         else:
-            self._expand_local_include(included_file)
+            self._expand_local_include(included_file,
+                                       include_directive_position)
 
     def _expand_directives(self):
         while len(self._directives) > 0:
@@ -2361,7 +2410,8 @@ class Parser(TokenReader):
             if directive.token_index != self.index:
                 break
             if isinstance(directive, FileInclusion):
-                self._expand_included_file(directive.file)
+                self._expand_included_file(directive.file,
+                                           directive.source_token.begin)
             elif isinstance(directive, YanTypedefDirective):
                 self.add_types(directive.type_names)
             else:
@@ -2631,11 +2681,12 @@ class Parser(TokenReader):
             init = self._parse_designation()
             if init is None:
                 init = self._parse_initializer()
-                if init is None:
-                    self._raise_syntax_error('Expected initializer')
-            lst.append(init)
+            if init is not None:
+                lst.append(init)
+            else:
+                break
         right_brace = self._expect_sign('}')
-        list_expr = CommaListExpr(lst)
+        list_expr = CommaListExpr(lst, True)
         return InitializerListExpr(left_brace, list_expr, right_brace)
 
     def _parse_initializer(self):
@@ -3299,18 +3350,30 @@ def parse(v,
     """
     v: a string or a preprocessor result
 
-    Return a tuple (expr, issues)
+    Return a tuple (expr, issues). `expr` is None on error.
     """
     assert isinstance(file_name, str)
 
     if include_directories is None:
         include_directories = []
 
-    pp_result = convert_to_pp_result(v, file_name, include_directories)
+    try:
+        pp_result = convert_to_pp_result(v, file_name, include_directories)
+    except NSyntaxError as e:
+        return (None, [e])
+
     parser = Parser(pp_result, file_name,
                     include_directories,
                     included_file_cache)
-    tree = parser.parse()
+
+    try:
+        tree = parser.parse()
+    except NSyntaxError as e:
+        issues = parser.issues
+        if e not in parser.issues:
+            issues.append(e)
+        return (None, issues)
+
     assert isinstance(tree, Expr)
     """
     tokens = preprocess(tokens, include_directories).tokens
@@ -3478,14 +3541,20 @@ class StyleChecker:
         return width + self.get_visible_width(string, position,
                                               visible_column)
 
-    def check_indent(self, string, expected_width, position,
+    def check_indent(self, string, expected_widths, position,
                      visible_column=1):
+        """
+        expected_widths: an int or a list of ints
+        """
+        if isinstance(expected_widths, int):
+            expected_widths = [expected_widths]
+
         indent_string, string = self.split_indent_string(string)
 
         width = self.get_visible_indent_width(indent_string, position,
                                               visible_column)
-        if width != expected_width:
-            diff = expected_width - width
+        if width not in expected_widths:
+            diff = expected_widths[0] - width
             msg = 'Bad indent level, expected {} {} space{}'.format(
                 abs(diff),
                 'more' if diff > 0 else 'fewer',
@@ -3998,12 +4067,21 @@ class IndentationChecker(StyleChecker):
             token = expr
         begin = token.begin
         first_line = lines[begin.line - 1]
-        self.check_indent(first_line, self.level, begin, 1)
+        if token.string == '{' and self.level > 0:
+            expected_levels = [self.level, self.level - 2]
+        else:
+            expected_levels = self.level
+        self.check_indent(first_line, expected_levels, begin)
 
     def _check_end_indentation(self, lines, expr):
-        end = expr.last_token.end
+        token = expr.last_token
+        end = token.begin
         first_line = lines[end.line - 1]
-        self.check_indent(first_line, self.level, end, 1)
+        if token.string == '}' and self.level > 0:
+            expected_levels = [self.level, self.level - 2]
+        else:
+            expected_levels = self.level
+        self.check_indent(first_line, expected_levels, end)
 
     def _check_expr(self, lines, expr):
         indented_classes = (
@@ -4073,9 +4151,11 @@ class BraceChecker(StyleChecker):
         return result
 
     def _check_alone_in_line(self, tokens, token):
-        tokens = BraceChecker._get_tokens_at_line(tokens, token.begin.line)
-        assert token in tokens
-        if len(tokens) > 1:
+        line_tokens = BraceChecker._get_tokens_at_line(tokens,
+                                                       token.begin.line)
+        assert token == line_tokens[0]
+        assert token in line_tokens
+        if len(line_tokens) > 1:
             self.error('{!r} not alone in its line'.format(token.string),
                        token.begin)
 
@@ -4192,7 +4272,7 @@ class HeaderChecker(StyleChecker):
             self.error(msg, token.begin)
 
     def _check_once_include_guard(self, tokens):
-        if len(tokens) < 2:
+        if len(tokens) < 3:
             self.error('Missing once include guard', tokens[0].begin)
             return
         self._check_directive(tokens[1], self._get_ifndef_guard(tokens))
@@ -4531,21 +4611,35 @@ def check_open_file(open_file, checkers, include_dirs=None,
 
     try:
         source_tokens = lex(source, open_file.name)
-        if len(source_tokens) == 0:
-            _empty_file_issue(open_file.name, checkers[0].issue)
-            # We must return here since some checkers fails if there
-            # is no token to check.
-            return source, []
+    except NSyntaxError as e:
+        return source, [e]
 
+    if len(source_tokens) == 0:
+        # TODO: Why use a checker since we can directly return an issue
+        # list?
+        _empty_file_issue(open_file.name, checkers[0].issue)
+        # We must return here since some checkers fails if there
+        # is no token to check.
+        return source, []
+
+    try:
         pp_result = convert_to_pp_result(source_tokens,
                                          open_file.name,
                                          include_dirs)
-        root_expr, issues = parse(pp_result,
-                                  open_file.name,
-                                  include_dirs, included_file_cache)
-
     except NSyntaxError as e:
-        return source, [e]
+        return [e] + pp_result.issues
+
+    root_expr, issues = parse(pp_result,
+                              open_file.name,
+                              include_dirs, included_file_cache)
+
+    for issue in issues:
+        if issue.level == 'syntax-error':
+            return source, issues
+
+    if root_expr is None:
+        assert len(issues) > 0
+        return source, issues
 
     for checker in checkers:
         checker.check_source(source,
@@ -4602,14 +4696,24 @@ class Program:
         for issue in issues:
             self._add_issue(issue)
 
+    def _get_file_source(self, path):
+        """
+        Return the source of a previously parsed file.
+
+        If the given path is unknown, an error is raised.
+        """
+        if path in self.sources:
+            return self.sources[path]
+        f = self._included_file_cache.file(path)
+        if f is not None:
+            return f.source
+        raise Exception()
+
     def _get_line_at(self, position):
         """
-        Returns the whole line at the given position or None
+        Return the whole line at the given position.
         """
-        file_name = position.file_name
-        if file_name not in self.sources:
-            return None
-        source = self.sources[file_name]
+        source = self._get_file_source(position.file_name)
         lines = source.splitlines()
         if len(lines) == 0:
             return ''
@@ -4617,11 +4721,9 @@ class Program:
 
     def _get_visible_column(self, position):
         """
-        Returns the visible column index at the given position or -1
+        Returns the visible column index at the given position
         """
         line = self._get_line_at(position)
-        if line is None:
-            return -1
         left = line[:position.column - 1]
         # XXX: hack hack hack
         return self.checkers[0].get_visible_width(left, position)
@@ -4642,8 +4744,7 @@ class Program:
         print(string)
 
         line = self._get_line_at(issue.position)
-        if line is None:
-            return
+        assert line is not None
         print(line)
         visible_column_index = self._get_visible_column(issue.position)
         marker = self._colorize('green', '^', True)
@@ -4718,6 +4819,15 @@ class Program:
                 if not (file_name.endswith('.c') or file_name.endswith('.h')):
                     continue
             self.check_file_or_dir(file_path, include_dirs)
+            if self._syntax_error_encountered:
+                break
+
+    @property
+    def _syntax_error_encountered(self):
+        for issue in self.issues:
+            if issue.level == 'syntax-error':
+                return True
+        return False
 
     def _check_file(self, file_path, include_dirs):
         if self.verbose:

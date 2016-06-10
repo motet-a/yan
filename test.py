@@ -9,10 +9,31 @@ import unittest
 import yan
 from yan import (lex,
                  NSyntaxError,
-                 Position,
-                 parse,
-                 parse_expr,
-                 parse_statement)
+                 Position)
+
+
+def _remove_notes_issues(issues):
+    return [i for i in issues if i.level != 'note']
+
+
+def parse_generic(source, parse_func):
+    expr, issues = parse_func(source)
+    issues = _remove_notes_issues(issues)
+    if len(issues) > 0:
+        raise issues[0]
+    return expr
+
+
+def parse(source):
+    return parse_generic(source, yan.parse)
+
+
+def parse_expr(source):
+    return parse_generic(source, yan.parse_expr)
+
+
+def parse_statement(source):
+    return parse_generic(source, yan.parse_statement)
 
 
 class TestPosition(unittest.TestCase):
@@ -167,20 +188,18 @@ class TestIncludedFile(unittest.TestCase):
 
 
 class TestParser(unittest.TestCase):
-    def checkDecl(self, source, expected_result=None, parse_func=parse):
+    def checkDecl(self, source, expected_result=None, parse_func=yan.parse):
         if expected_result is None:
             expected_result = source
-        tree, issues = parse_func(source)
-        issues = [i for i in issues if i.level != 'note']
-        self.assertEqual(len(issues), 0)
+        tree = parse_generic(source, parse_func)
         result = str(tree).rstrip('\n')
         self.assertEqual(result, expected_result)
 
     def checkExpr(self, source, expected_result=None):
-        self.checkDecl(source, expected_result, parse_expr)
+        self.checkDecl(source, expected_result, yan.parse_expr)
 
     def checkStatement(self, source, expected_result=None):
-        self.checkDecl(source, expected_result, parse_statement)
+        self.checkDecl(source, expected_result, yan.parse_statement)
 
     def test_string_concatenation(self):
         self.checkExpr('"hello" "world" "!"')
@@ -408,7 +427,7 @@ class TestParser(unittest.TestCase):
             parse('int main() {//bug\n}')
 
     def test_selection(self):
-        expr, _ = parse_expr('1 + 1')
+        expr = parse_expr('1 + 1')
         plus = expr.select('binary_operation')
         assert len(plus) == 1
         assert isinstance(list(plus)[0], yan.BinaryOperationExpr)
@@ -424,10 +443,10 @@ class TestParser(unittest.TestCase):
             assert isinstance(child, yan.LiteralExpr)
 
         with self.assertRaises(ValueError):
-            parse_expr('123')[0].select('')
+            parse_expr('123').select('')
 
         with self.assertRaises(ValueError):
-            parse_expr('123')[0].select('eiaueiuaeiua')
+            parse_expr('123').select('eiaueiuaeiua')
 
 
 def test_file(test_name, error_messages=None):
