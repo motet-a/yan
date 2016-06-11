@@ -562,9 +562,14 @@ class TestFiles(unittest.TestCase):
     def test_indentation(self):
         test_file('indentation_invalid_0',
                   'Bad indent level, expected 1 more space')
+        test_file('indentation_invalid_1',
+                  'Bad indent level, expected 2 fewer spaces')
+        test_file('indentation_invalid_2',
+                  'Bad indent level, expected 1 more space')
         test_file('indentation_invalid_if',
                   'Bad indent level, expected 5 fewer spaces')
         test_file('indentation_if')
+        test_file('indentation_alternative_if')
 
     def test_name(self):
         test_file('bad_function_name', "'Bad' is an invalid name")

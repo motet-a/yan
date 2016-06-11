@@ -3545,6 +3545,8 @@ class StyleChecker:
                      visible_column=1):
         """
         expected_widths: an int or a list of ints
+
+        Returns the real indentation of the string.
         """
         if isinstance(expected_widths, int):
             expected_widths = [expected_widths]
@@ -3560,6 +3562,7 @@ class StyleChecker:
                 'more' if diff > 0 else 'fewer',
                 's' if abs(diff) > 1 else '')
             self.error(msg, position)
+        return width
 
     def check_margin(self, source, left_token, margin, right_token):
         """
@@ -4071,17 +4074,13 @@ class IndentationChecker(StyleChecker):
             expected_levels = [self.level, self.level - 2]
         else:
             expected_levels = self.level
-        self.check_indent(first_line, expected_levels, begin)
+        return self.check_indent(first_line, expected_levels, begin)
 
-    def _check_end_indentation(self, lines, expr):
+    def _check_end_indentation(self, expected_level, lines, expr):
         token = expr.last_token
         end = token.begin
         first_line = lines[end.line - 1]
-        if token.string == '}' and self.level > 0:
-            expected_levels = [self.level, self.level - 2]
-        else:
-            expected_levels = self.level
-        self.check_indent(first_line, expected_levels, end)
+        self.check_indent(first_line, expected_level, end)
 
     def _check_expr(self, lines, expr):
         indented_classes = (
@@ -4099,7 +4098,7 @@ class IndentationChecker(StyleChecker):
         )
 
         if isinstance(expr, indented_classes):
-            self._check_begin_indentation(lines, expr)
+            begin_level = self._check_begin_indentation(lines, expr)
 
         if isinstance(expr, indentor_classes):
             self.level += 2
@@ -4124,7 +4123,7 @@ class IndentationChecker(StyleChecker):
             self.level -= 2
 
         if isinstance(expr, CompoundExpr):
-            self._check_end_indentation(lines, expr)
+            self._check_end_indentation(begin_level, lines, expr)
 
     def check_source(self, source, source_tokens, pp_tokens, expr):
         self.level = 0
