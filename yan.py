@@ -454,6 +454,8 @@ class Expr:
 
     def __init__(self, children):
         self._children = children[:]
+        self.left_attribute = None
+        self.right_attribute = None
         for child in children:
             assert isinstance(child, Expr)
 
@@ -550,11 +552,20 @@ class Expr:
         return selected
 
     @property
-    def children(self):
+    def children(self, include_attributes=False):
         """
         Return the children expressions of this expression.
+
+        include_attributes: True to include the __attribute__((...))
+        associated with this expression.
         """
-        return self._children[:]
+        children = self._children[:]
+        if include_attributes:
+            if self.left_attribute:
+                children.insert(0, self.left_attribute)
+            if self.right_attribute:
+                children.append(self.right_attribute)
+        return children
 
     @property
     def tokens(self):
@@ -594,7 +605,13 @@ class Expr:
 
     def __repr__(self):
         class_name = self.__class__.__name__
-        return '<{} children={}>'.format(class_name, self.children)
+        s = '<' + class_name
+        if self.left_attribute is not None:
+            s += ' left_attribute=' + repr(self.left_attribute)
+        s += ' children=' + repr(self.children)
+        if self.right_attribute is not None:
+            s += ' right_attribute=' + repr(self.right_attribute)
+        return s + '>'
 
 
 class CommaListExpr(Expr):
@@ -2980,7 +2997,7 @@ class Parser(TokenReader):
         self.add_type(name)
 
     @backtrack
-    def parse_declaration(self):
+    def _parse_declaration_no_attr(self):
         type_expr = self._parse_declaration_specifiers()
         if type_expr is None:
             return None
@@ -2998,6 +3015,10 @@ class Parser(TokenReader):
                 self._add_type_from_declarator(decl)
         return DeclarationExpr(type_expr, declarators, semicolon)
 
+    def parse_declaration(self):
+        d = self._parse_attributed_expression(self._parse_declaration_no_attr)
+        return d
+
     def _parse_declaration_list(self):
         declarations = []
         while True:
@@ -3007,6 +3028,16 @@ class Parser(TokenReader):
             declarations.append(decl)
         return declarations
 
+    @backtrack
+    def _parse_argument_no_attr(self):
+        argument = self._parse_assignment_expression()
+        if argument is None:
+            argument = self._parse_type_name()
+        return argument
+
+    def _parse_argument(self):
+        return self._parse_attributed_expression(self._parse_argument_no_attr)
+
     def _parse_argument_expression_list(self):
         args_commas = []
         while True:
@@ -3015,15 +3046,39 @@ class Parser(TokenReader):
                 if comma is None:
                     break
                 args_commas.append(comma)
-            argument = self._parse_assignment_expression()
+            argument = self._parse_argument()
             if argument is None:
-                argument = self._parse_type_name()
-                if argument is None:
-                    if len(args_commas) == 0:
-                        break
-                    self._raise_syntax_error('Expected argument')
+                if len(args_commas) == 0:
+                    break
+                self._raise_syntax_error('Expected argument')
             args_commas.append(argument)
         return CommaListExpr(args_commas)
+
+    @backtrack
+    def _parse_attribute(self):
+        attribute = self._parse_identifier()
+        if attribute is None or attribute.string != '__attribute__':
+            return None
+
+        left_parens = self._expect_sign('('), self._expect_sign('(')
+
+        inner = self._parse_argument_expression_list()
+
+        right_parens = self._expect_sign(')'), self._expect_sign(')')
+
+        inner = ParenExpr(left_parens[1], inner, right_parens[0])
+        inner = ParenExpr(left_parens[0], inner, right_parens[1])
+        return AttributeExpr(attribute, inner)
+
+    @backtrack
+    def _parse_attributed_expression(self, inner_function):
+        left = self._parse_attribute()
+        inner = inner_function()
+        if inner is None:
+            return None
+        inner.left_attribute = left
+        inner.right_attribute = self._parse_attribute()
+        return inner
 
     @backtrack
     def _parse_compound_literal(self):
