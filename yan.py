@@ -605,10 +605,13 @@ class CommaListExpr(Expr):
     def __init__(self, comma_separated_children, allow_trailing=False):
         """
         comma_separated_children is a list of expressions
-        separated by commas tokens.
+        separated by commas tokens. It can be empty. It contains the commas.
         """
         if len(comma_separated_children) > 0 and not allow_trailing:
             assert len(comma_separated_children) % 2 == 1
+
+        for item in comma_separated_children:
+            assert isinstance(item, Token) or isinstance(item, Expr)
 
         children = [d for d in comma_separated_children
                     if isinstance(d, Expr)]
@@ -898,28 +901,65 @@ class TypeExpr(Expr):
         return ' '.join(str(c) for c in self.children)
 
 
-class ParameterExpr(Expr):
-    def __init__(self, type_expr, declarator=None):
+class AbstractDeclarationExpr(Expr):
+    """
+    A generic and abstract class representing a declaration.
+    """
+
+    def __init__(self, type_expr, declarators=None):
         """
         type_expr: a TypeExpr or None, if the declarator is not None
+        declarators: a CommaListExpr, a list or None
         """
-        if declarator is None or type_expr is not None:
-            assert isinstance(type_expr, TypeExpr)
+        if declarators is None:
+            declarators = []
 
+        if isinstance(declarators, list):
+            declarators = CommaListExpr(declarators)
+
+        assert isinstance(declarators, CommaListExpr)
+
+        if len(declarators) == 0 or type_expr is not None:
+            assert isinstance(type_expr, TypeExpr)
         self._type_expr = type_expr
-        children = [type_expr] + ([] if declarator is None else [declarator])
-        Expr.__init__(self, children)
-        self.declarator = declarator
+        Expr.__init__(self, [type_expr, declarators])
+        self._declarators = declarators
 
     @property
     def type_expr(self):
+        """
+        Return a TypeExpr or None
+        """
         return self._type_expr
+
+    @property
+    def declarators(self):
+        """
+        Return a CommaListExpr or None
+        """
+        return self._declarators
 
     def __str__(self):
         specifiers = str(self.type_expr)
-        if self.declarator is None:
+        if len(self.declarators.children) == 0:
             return specifiers
-        return '{} {}'.format(specifiers, self.declarator)
+        declarators = str(self.declarator)
+        return '{} {}'.format(specifiers, declarators)
+
+
+class ParameterExpr(AbstractDeclarationExpr):
+    def __init__(self, type_expr, declarator):
+        assert declarator is None or isinstance(declarator, Expr)
+        declarators = [] if declarator is None else [declarator]
+        super().__init__(type_expr, declarators)
+
+    @property
+    def declarator(self):
+        decls = self.declarators.children
+        if len(decls) == 0:
+            return None
+        return decls[0]
+
 
 
 class StatementExpr(Expr):
@@ -1159,26 +1199,15 @@ class CastExpr(Expr):
         return str(self.paren_type) + str(self.right)
 
 
-class DeclarationExpr(Expr):
+class DeclarationExpr(AbstractDeclarationExpr):
     def __init__(self, type_expr, declarators, semicolon):
         """
         declarators: A CommaListExpr
         """
-        assert isinstance(type_expr, TypeExpr)
         assert isinstance(declarators, CommaListExpr)
 
-        super().__init__([type_expr, declarators])
-        self._type_expr = type_expr
-        self._declarators = declarators
+        super().__init__(type_expr, declarators)
         self._semicolon = semicolon
-
-    @property
-    def type_expr(self):
-        return self._type_expr
-
-    @property
-    def declarators(self):
-        return self._declarators
 
     @property
     def semicolon(self):
@@ -1243,33 +1272,57 @@ class TernaryOperationExpr(Expr):
         return '{} ? {} : {}'.format(self.left, self.mid, self.right)
 
 
-class CallExpr(Expr, AbstractParenExpr):
-    def __init__(self, expression, left_paren, arguments, right_paren):
-        assert isinstance(arguments, CommaListExpr)
-        AbstractParenExpr.__init__(self, left_paren, right_paren)
-        Expr.__init__(self, [expression, arguments])
+class AbstractCallExpr(Expr):
+    def __init__(self, expression, arguments_paren):
+        assert isinstance(arguments_paren, AbstractParenExpr)
+        super().__init__([expression, arguments_paren])
         self._expression = expression
-        self._arguments = arguments
+        self._arguments_paren = arguments_paren
 
     @property
     def expression(self):
         return self._expression
 
     @property
-    def arguments(self):
-        return self._arguments
+    def arguments_paren(self):
+        return self._arguments_paren
 
     @property
     def tokens(self):
-        return (self.expression.tokens +
-                [self.left_paren] +
-                self.arguments.tokens +
-                [self.right_paren])
+        return self.expression.tokens + self.arguments_paren.tokens
 
     def __str__(self):
-        string = str(self.expression)
-        string += '(' + str(self.arguments) + ')'
-        return string
+        return str(self.expression) + str(self.arguments_paren)
+
+
+class CallExpr(AbstractCallExpr):
+    def __init__(self, expression, arguments_paren):
+        assert len(arguments_paren.children) <= 1
+        if arguments_paren.children == 1:
+            assert isinstance(arguments_paren.children[0], CommaListExpr)
+        super().__init__(expression, arguments_paren)
+
+    @property
+    def arguments(self):
+        if len(self.arguments_paren.children) == 0:
+            return None
+        return self.arguments_paren.children[0]
+
+    @property
+    def left_paren(self):
+        return self._arguments_paren.left_paren
+
+    @property
+    def right_paren(self):
+        return self._arguments_paren.right_paren
+
+
+class AttributeExpr(AbstractCallExpr):
+    """
+    Represents an __attribute__((...))
+    """
+    def __init__(self, expression, arguments_paren):
+        super().__init__(expression, arguments_paren)
 
 
 class SizeofExpr(Expr):
@@ -2995,7 +3048,8 @@ class Parser(TokenReader):
             if operator.string == '(':
                 args_commas = self._parse_argument_expression_list()
                 right_paren = self._expect_sign(')')
-                left = CallExpr(left, operator, args_commas, right_paren)
+                paren = ParenExpr(operator, args_commas, right_paren)
+                left = CallExpr(left, paren)
             elif operator.string == '[':
                 expr = self.parse_expression()
                 right_bracket = self._expect_sign(']')
