@@ -5,4 +5,4 @@ python:
   - "3.4"
   - "3.5"
 # command to run tests
-script: python3 -m unittest test
+script: python3 -m unittest test && ./test_on_real_projects.sh
