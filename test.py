@@ -624,8 +624,15 @@ class TestFiles(unittest.TestCase):
         test_file('space_between_func_name_and_args',
                   "Expected 0 spaces or tabs between 'some_function' and '('")
 
+    def test_space_between_type_and_declarator(self):
+        test_file('space_between_type_and_declarator',
+                  "Expected one space between 'int' and 'a'")
+
     def test_cplusplus(self):
         test_file('cplusplus.h')
+
+    def test_attribute(self):
+        test_file('__attribute___valid.h')
 
 if __name__ == '__main__':
     unittest.main()

@@ -41,7 +41,7 @@ class Position:
     @property
     def file_name(self):
         """
-        Return the file path.
+        Return the full file path.
         """
         return self._file_name
 
@@ -55,7 +55,7 @@ class Position:
     @property
     def line(self):
         """
-        Returns the 1-based line number.
+        Return the 1-based line number.
         """
         return self._line
 
@@ -70,7 +70,7 @@ class Position:
         """
         Add an integer to the index of this position.
 
-        Don't mutate this position and returns an integer.
+        Don't mutate this position and return an integer.
         """
         return self.index + other
 
@@ -79,7 +79,7 @@ class Position:
         Subtract an integer or the index of another position from this
         position.
 
-        Don't mutate this position and returns an integer.
+        Don't mutate this position and return an integer.
         """
         if isinstance(other, Position):
             other = other.index
@@ -198,15 +198,12 @@ class StyleIssue:
         """
         Return a string describing the issue
 
-        Don't include the position of the issue.
+        The message doesn't include the position of the issue.
         """
         return self._message
 
     @property
     def position(self):
-        """
-        Return the position of the issue
-        """
         return self._position
 
     @property
@@ -278,6 +275,7 @@ unsigned
 void
 volatile
 while
+__attribute__
 '''.split()
 
 
@@ -311,7 +309,7 @@ SIGNS = '''
 
 def get_lexer_spec():
     """
-    Returns an array of regexps which represents the "grammar"
+    Return an array of regexps which represents the "grammar"
     of the lexer.
 
     This is quite unintelligible.
@@ -552,19 +550,23 @@ class Expr:
         return selected
 
     @property
-    def children(self, include_attributes=False):
+    def children(self):
         """
         Return the children expressions of this expression.
-
-        include_attributes: True to include the __attribute__((...))
-        associated with this expression.
         """
-        children = self._children[:]
-        if include_attributes:
-            if self.left_attribute:
-                children.insert(0, self.left_attribute)
-            if self.right_attribute:
-                children.append(self.right_attribute)
+        return self._children[:]
+
+    @property
+    def children_attr(self):
+        """
+        Same as self.children but with the __attribute__((...))
+        expressions concatenated.
+        """
+        children = self.children
+        if self.left_attribute:
+            children.insert(0, self.left_attribute)
+        if self.right_attribute:
+            children.append(self.right_attribute)
         return children
 
     @property
@@ -573,30 +575,45 @@ class Expr:
         Return a list of the token of this expression, including the
         tokens of the children.
         """
-        tokens = []
-        for child in self.children:
-            for token in child.tokens:
-                assert isinstance(token, Token)
-            tokens += child.tokens
+        return sum([child.tokens for child in self.children], [])
+
+    @property
+    def tokens_attr(self):
+        """
+        Same as self.tokens but with the __attribute__((...)) tokens
+        concatenated.
+        """
+        children_tokens = sum([child.tokens_attr
+                               for child in self.children_attr], [])
+        tokens = self.tokens
+        if len(children_tokens) > len(tokens):
+            return children_tokens
+
+        if self.left_attribute:
+            tokens.insert(0, self.left_attribute.tokens)
+        if self.right_attribute:
+            tokens.append(self.right_attribute.tokens)
         return tokens
 
     @property
     def first_token(self):
-        """
-        Return the first token of this expression.
-        """
         return self.tokens[0]
 
     @property
     def last_token(self):
-        """
-        Return the last token of this expression.
-        """
         return self.tokens[-1]
+
+    @property
+    def first_token_attr(self):
+        return self.tokens_attr[0]
+
+    @property
+    def last_token_attr(self):
+        return self.tokens_attr[-1]
 
     def __len__(self):
         """
-        Return the length of the chidren expressions.
+        Return the count of children expressions.
         """
         return len(self.children)
 
@@ -1334,12 +1351,32 @@ class CallExpr(AbstractCallExpr):
         return self._arguments_paren.right_paren
 
 
+class AttributeKeywordExpr(Expr):
+    """
+    Wraps an `__attribute__` keyword into an expression.
+    """
+    def __init__(self, token):
+        super().__init__([])
+        assert token.kind == 'keyword'
+        assert token.string == '__attribute__'
+        self._token = token
+
+    @property
+    def attribute(self):
+        return self._token
+
+    @property
+    def tokens(self):
+        return [self._token]
+
+
 class AttributeExpr(AbstractCallExpr):
     """
     Represents an __attribute__((...))
     """
-    def __init__(self, expression, arguments_paren):
-        super().__init__(expression, arguments_paren)
+    def __init__(self, attribute_token, arguments_paren):
+        attribute = AttributeKeywordExpr(attribute_token)
+        super().__init__(attribute, arguments_paren)
 
 
 class SizeofExpr(Expr):
@@ -1736,7 +1773,7 @@ def get_makefile_content(directory_path):
 
 def get_include_dirs_from_makefile(directory_path):
     """
-    Returns a list of the include directores read from the Makefile.
+    Returns a list of the include directories read from the Makefile.
     """
     makefile_content = get_makefile_content(directory_path)
     if makefile_content is None:
@@ -2546,7 +2583,7 @@ class Parser(TokenReader):
             return None
         return LiteralExpr(token)
 
-    def _parse_parameter_declaration(self):
+    def _parse_parameter_declaration_no_attr(self):
         type_expr = self._parse_declaration_specifiers()
         if type_expr is None:
             return None
@@ -2555,6 +2592,11 @@ class Parser(TokenReader):
             declarator = self._parse_declarator(True)
         # declarator can be None
         return ParameterExpr(type_expr, declarator)
+
+    def _parse_parameter_declaration(self):
+        d = self._parse_attributed_expression(
+                self._parse_parameter_declaration_no_attr)
+        return d
 
     def _parse_parameter_type_list(self):
         left_paren = self._parse_sign('(')
@@ -2651,7 +2693,7 @@ class Parser(TokenReader):
         return left
 
     @backtrack
-    def _parse_declarator(self, abstract=False):
+    def _parse_declarator_no_attr(self, abstract=False):
         """
         Returns a declarator or None
         """
@@ -2663,6 +2705,12 @@ class Parser(TokenReader):
         if right is None and not abstract:
             return None
         return PointerExpr(star, right, type_qualifiers)
+
+    def _parse_declarator(self, abstract=False):
+        def inner_func():
+            return self._parse_declarator_no_attr(abstract)
+
+        return self._parse_attributed_expression(inner_func)
 
     def _parse_strings(self):
         strings = []
@@ -2996,8 +3044,7 @@ class Parser(TokenReader):
             raise Exception(msg)
         self.add_type(name)
 
-    @backtrack
-    def _parse_declaration_no_attr(self):
+    def _parse_declaration_without_semicolon_no_attr(self):
         type_expr = self._parse_declaration_specifiers()
         if type_expr is None:
             return None
@@ -3005,9 +3052,31 @@ class Parser(TokenReader):
             self._in_typedef = True
         declarators = self._parse_init_declarator_list()
         self._in_typedef = False
+        return type_expr, declarators
+
+    def _parse_declaration_without_semicolon(self):
+        left_attribute = self._parse_attribute()
+
+        td = self._parse_declaration_without_semicolon_no_attr()
+        if td is None:
+            return None
+        type_expr, declarators = td
+
+        type_expr.left_attribute = left_attribute
+        declarators.right_attribute = self._parse_attribute()
+        return type_expr, declarators
+
+    @backtrack
+    def parse_declaration(self):
+        decl_tuple = self._parse_declaration_without_semicolon()
+        if decl_tuple is None:
+            return None
+        type_expr, declarators = decl_tuple
+
         semicolon = self._parse_sign(';')
         if semicolon is None:
             return None
+
         if type_expr.is_typedef:
             if len(declarators) == 0:
                 self._raise_syntax_error("Expected type name after 'typedef'")
@@ -3015,9 +3084,6 @@ class Parser(TokenReader):
                 self._add_type_from_declarator(decl)
         return DeclarationExpr(type_expr, declarators, semicolon)
 
-    def parse_declaration(self):
-        d = self._parse_attributed_expression(self._parse_declaration_no_attr)
-        return d
 
     def _parse_declaration_list(self):
         declarations = []
@@ -3036,7 +3102,8 @@ class Parser(TokenReader):
         return argument
 
     def _parse_argument(self):
-        return self._parse_attributed_expression(self._parse_argument_no_attr)
+        a = self._parse_attributed_expression(self._parse_argument_no_attr)
+        return a
 
     def _parse_argument_expression_list(self):
         args_commas = []
@@ -3056,8 +3123,8 @@ class Parser(TokenReader):
 
     @backtrack
     def _parse_attribute(self):
-        attribute = self._parse_identifier()
-        if attribute is None or attribute.string != '__attribute__':
+        attribute = self._parse_keyword(['__attribute__'])
+        if attribute is None:
             return None
 
         left_parens = self._expect_sign('('), self._expect_sign('(')
@@ -3404,13 +3471,12 @@ class Parser(TokenReader):
         right_brace = self._expect_sign('}')
         return CompoundExpr(left_brace, declarations, statements, right_brace)
 
+    @backtrack
     def _parse_function_definition(self):
         type_expr = self._parse_declaration_specifiers()
         declarator = self._parse_declarator()
         if declarator is None:
-            if type_expr is None:
-                return None
-            self._raise_syntax_error('Expected declarator')
+            return None
         compound = self._parse_compound_statement()
         if compound is None:
             self._raise_syntax_error('Expected compound statement')
@@ -3998,15 +4064,13 @@ class ParenChecker(StyleChecker):
         super().__init__(issue_handler)
 
     def _check_paren_expr(self, source, paren):
-        if isinstance(paren, CallExpr):
-            inner = paren.arguments
-        else:
-            inner = paren.expression
+        inner = (paren.arguments if isinstance(paren, CallExpr)
+                 else paren.expression)
         if len(inner.tokens) == 0:
             self.check_margin(source, paren.left_paren, 0, paren.right_paren)
             return
-        self.check_margin(source, paren.left_paren, 0, inner.first_token)
-        self.check_margin(source, inner.last_token, 0, paren.right_paren)
+        self.check_margin(source, paren.left_paren, 0, inner.first_token_attr)
+        self.check_margin(source, inner.last_token_attr, 0, paren.right_paren)
 
     def check_source(self, source, source_tokens, pp_tokens, expr):
         for paren in expr.select('paren'):
@@ -4098,7 +4162,15 @@ class DeclarationChecker(StyleChecker):
                 self.check_same_line(prev.last_token, child.first_token)
             prev = child
 
-    def check(self, source_tokens, pp_tokens, expr):
+    def _check_param(self, source, param):
+        if param.declarator is None:
+            return
+        self.check_margin(source,
+                          param.type_expr.last_token_attr,
+                          ' ',
+                          param.declarator.first_token_attr)
+
+    def check_source(self, source, source_tokens, pp_tokens, expr):
         for struct in expr.select('struct'):
             self._check_struct(struct)
         for decl in expr.select('declaration'):
@@ -4110,6 +4182,8 @@ class DeclarationChecker(StyleChecker):
             self._check_function_def(func)
         for decl in expr.select('function'):
             self._check_new_line_constistency(decl)
+        for param in expr.select('parameter'):
+            self._check_param(source, param)
 
 
 class DeclaratorChecker(StyleChecker):
@@ -4252,18 +4326,14 @@ class BraceChecker(StyleChecker):
 
     @staticmethod
     def _get_tokens_at_line(tokens, line):
-        result = []
-        for token in tokens:
-            if token.begin.line == line or token.end.line == line:
-                result.append(token)
-        return result
+        return [t
+                for t in tokens
+                if t.begin.line == line or t.end.line == line]
 
     def _check_alone_in_line(self, tokens, token):
         line_tokens = BraceChecker._get_tokens_at_line(tokens,
                                                        token.begin.line)
-        assert token == line_tokens[0]
-        assert token in line_tokens
-        if len(line_tokens) > 1:
+        if len(line_tokens) != 1 or token not in line_tokens:
             self.error('{!r} not alone in its line'.format(token.string),
                        token.begin)
 
@@ -4670,7 +4740,7 @@ def colorize(style_name, string, bold=False):
 
 
 def create_checkers(issue_handler):
-    checkers_classes = [
+    checker_classes = [
         BinaryOpSpaceChecker,
         BraceChecker,
         CallChecker,
@@ -4698,7 +4768,7 @@ def create_checkers(issue_handler):
         TrailingWhitespaceChecker,
         UnaryOpSpaceChecker,
     ]
-    return [c(issue_handler) for c in checkers_classes]
+    return [c(issue_handler) for c in checker_classes]
 
 
 def _empty_file_issue(path, issue_handler):
