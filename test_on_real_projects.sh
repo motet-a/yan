@@ -3,7 +3,7 @@
 
 cd "$(dirname "$0")"
 
-yan=$(realpath yan.py)
+yan=$(readlink -f -- yan.py)
 
 rm -rf test/projects
 mkdir test/projects
