@@ -634,5 +634,13 @@ class TestFiles(unittest.TestCase):
     def test_attribute(self):
         test_file('__attribute___valid.h')
 
+    def test_empty_line(self):
+        test_file('empty_line_0', 'Unexpected empty line')
+        test_file('empty_line_1', 'Unexpected empty line')
+        test_file('empty_line_2',
+                  'Expected empty line between declarations and statements')
+        test_file('empty_line_3', 'Unexpected empty line')
+        test_file('empty_line_4', 'Unexpected empty line')
+
 if __name__ == '__main__':
     unittest.main()

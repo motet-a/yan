@@ -1,5 +1,5 @@
 /*
-** 26_line_function.c for  in /home/antoine
+** 25_line_function.c for  in /home/antoine
 **
 ** Made by antoine
 ** Login   <antoine@epitech.net>

@@ -3824,7 +3824,7 @@ class EmptyLineChecker(LineChecker):
         empty = len(line.strip()) == 0
         if empty:
             if self._empty_previous_line:
-                self.error("Empty line", begin)
+                self.error("Unexpected empty line", begin)
         self._empty_previous_line = empty
 
     def check_source(self, source, source_tokens, pp_tokens, expr):
@@ -3846,11 +3846,21 @@ class EmptyLineInFunctionChecker(StyleChecker):
                 self.error('Unexpected empty line', token.begin)
             line = token.end.line
 
+    def _assert_no_line_between(self, a, b):
+        if a.end.line + 1 != b.begin.line:
+            self.error('Unexpected empty line', b.begin)
+
     def _check_compound(self, compound):
         if len(compound.declarations) > 0:
             self._check_block(compound.declarations)
+            self._assert_no_line_between(compound.left_brace,
+                                         compound.declarations[0].first_token)
+
         if len(compound.statements) > 0:
             self._check_block(compound.statements)
+            self._assert_no_line_between(compound.statements[-1].last_token,
+                                         compound.right_brace)
+
         if len(compound.declarations) > 0 and len(compound.statements) > 0:
             last_decl = compound.declarations[-1]
             first_stmt = compound.statements[0]
