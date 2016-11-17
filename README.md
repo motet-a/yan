@@ -17,7 +17,7 @@ However, Yan does not handle macros and preprocessor directives (except
 
 
 
-## What does it checks?
+## What does it check?
 
 A lot of rules of the *EPITECH style* are checked. I don't want to list
 all the checks here, it's a pain to describe and to read. Here is a short
