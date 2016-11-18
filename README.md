@@ -69,9 +69,38 @@ Some features of C99 are implemented (e.g. designated initializers).
 
 
 
+## Download
+
+Clone the whole repository or fetch `yan.py` only:
+
+```sh
+wget https://raw.githubusercontent.com/motet-a/yan/master/yan.py
+chmod +x yan.py
+```
+
+
+
+## Check
+
+If `PSU_2015_my_printf/` is the directory of your repository, simply
+run `yan PSU_2015_my_printf/`.
+
+If you have header files in a separate directory and the paths in your
+`#include` statements are not relative, Yan can't find the
+headers. You have to specify manually which directories contains
+headers with the `-I` option.
+
+If you have a Makefile, Yan can automatically find which directory
+contains headers in some cases.
+
+
+
 ## Run the tests
 
-Use `python3 -m unittest yan`.
+Use `./test.py` or `python3 -m unittest test.py`.
+
+The script `test_on_real_projects.sh` fetches a few Git repositories
+of EPITECH projects and checks their sources with Yan.
 
 
 
