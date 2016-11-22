@@ -21,6 +21,34 @@ as published by Sam Hocevar. See http://www.wtfpl.net/ for more details.
 """
 
 
+def split_camel_case(string):
+    """
+    Split the words in a camel-case-formatted string.
+
+    Returns a list of words in lowercase.
+
+    >>> Expr._split_camel_case('FooBar')
+    ['foo', 'bar']
+    """
+    def find_uppercase_letter(string):
+        """
+        Return the index of the first uppercase letter in a string,
+        or -1 if not found.
+        """
+        for i, char in enumerate(string):
+            if char.isupper():
+                return i
+        return -1
+
+    first = string[0].lower()
+    string = first + string[1:]
+    upper_index = find_uppercase_letter(string)
+    if upper_index == -1:
+        return [string]
+    left = string[:upper_index]
+    return [left] + split_camel_case(string[upper_index:])
+
+
 class Position:
     """
     Represents a position in a file.
@@ -458,34 +486,6 @@ class Expr:
             assert isinstance(child, Expr)
 
     @staticmethod
-    def _split_camel_case(string):
-        """
-        Split the words in a camel-case-formatted string.
-
-        Returns a list of words in lowercase.
-
-        >>> Expr._split_camel_case('FooBar')
-        ['foo', 'bar']
-        """
-        def find_uppercase_letter(string):
-            """
-            Return the index of the first uppercase letter in a string,
-            or -1 if not found.
-            """
-            for i, char in enumerate(string):
-                if char.isupper():
-                    return i
-            return -1
-
-        first = string[0].lower()
-        string = first + string[1:]
-        upper_index = find_uppercase_letter(string)
-        if upper_index == -1:
-            return [string]
-        left = string[:upper_index]
-        return [left] + Expr._split_camel_case(string[upper_index:])
-
-    @staticmethod
     def _get_class_short_name(name):
         """
         Return a short name from an expression class name.
@@ -494,7 +494,7 @@ class Expr:
         'foo_bar'
         """
         name = name[:-len('Expr')]
-        words = Expr._split_camel_case(name)
+        words = split_camel_case(name)
         return '_'.join(words)
 
     @staticmethod
@@ -3591,6 +3591,18 @@ class StyleChecker:
         self.tab_width = StyleChecker.DEFAULT_TAB_WIDTH
         self.indent_chars = ' \t'
 
+    @classmethod
+    def get_class_short_name(klass):
+        """
+        Return a short name from an checker class name.
+
+        >>> Expr._get_class_short_name('FooBarChecker')
+        'foo_bar'
+        """
+        name = klass.__name__[:-len('Checker')]
+        words = split_camel_case(name)
+        return '_'.join(words)
+
     @staticmethod
     def get_file_name(source_tokens):
         """
@@ -4738,6 +4750,16 @@ def get_argument_parser(checkers):
                         type=int,
                         help=help_str)
 
+    parser.add_argument('--disable-checker',
+                        action='append',
+                        metavar='CHECKER_NAME',
+                        default=[],
+                        help="disable a checker")
+
+    parser.add_argument('--list-checkers',
+                        action='store_true',
+                        help="list available checkers")
+
     for checker in checkers:
         checker.create_argument_group(parser)
 
@@ -4872,14 +4894,27 @@ class Program:
     """
 
     def __init__(self):
-        self.checkers = create_checkers(self._add_issue)
+        checkers = create_checkers(self._add_issue)
 
-        argument_parser = get_argument_parser(self.checkers)
+        argument_parser = get_argument_parser(checkers)
+
         options = argument_parser.parse_args()
+        if options.list_checkers:
+            self._list_checkers(checkers)
+            sys.exit(0)
+
         self.options = options
 
-        for checker in self.checkers:
+        for name in self.options.disable_checker:
+            checker = self._find_checker_by_name(checkers, name)
+            if checker is None:
+                raise Exception('Unknown checker {!r}'.format(name))
+            checkers.remove(checker)
+
+        for checker in checkers:
             checker.configure(options)
+
+        self.checkers = checkers
 
         self._issues = []
         self.include_dirs = options.include_dir
@@ -4889,6 +4924,16 @@ class Program:
         self.colors = os.isatty(sys.stdout.fileno())
         self.sources = {}
         self._included_file_cache = IncludedFileCache()
+
+    def _find_checker_by_name(self, checkers, name):
+        for checker in checkers:
+            if checker.get_class_short_name() == name:
+                return checker
+        return None
+
+    def _list_checkers(self, checkers):
+        for checker in checkers:
+            print(checker.get_class_short_name())
 
     def _add_issue(self, issue):
         assert isinstance(issue, StyleIssue)
