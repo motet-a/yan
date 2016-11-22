@@ -3612,9 +3612,6 @@ class StyleChecker:
             return '<unknown file>'
         return source_tokens[0].begin.file_name
 
-    def create_argument_group(self, parser):
-        pass
-
     def configure_all(self, options):
         self.tab_width = options.width
         self.configure(options)
@@ -3929,7 +3926,8 @@ class HeaderCommentChecker(StyleChecker):
     def configure(self, options):
         self.username_check_enabled = options.header_username
 
-    def create_argument_group(self, parser):
+    @staticmethod
+    def create_argument_group(parser):
         group = parser.add_argument_group('Header comments')
         group.add_argument('--header-username',
                            action='store_true',
@@ -4713,7 +4711,41 @@ class DeclaratorAlignmentChecker(StyleChecker):
             self._check_declaration(lines, child)
 
 
-def get_argument_parser(checkers):
+CHECKER_CLASSES = [
+    BinaryOpSpaceChecker,
+    BraceChecker,
+    CallChecker,
+    CommaChecker,
+    CommentChecker,
+    DeclarationChecker,
+    DeclaratorAlignmentChecker,
+    DeclaratorChecker,
+    DirectiveIndentationChecker,
+    EmptyLineChecker,
+    EmptyLineInFunctionChecker,
+    FunctionCountChecker,
+    FunctionLengthChecker,
+    HeaderChecker,
+    HeaderCommentChecker,
+    IndentationChecker,
+    KeywordSpaceChecker,
+    LineLengthChecker,
+    NameChecker,
+    OneStatementByLineChecker,
+    ParenChecker,
+    ReturnChecker,
+    SourceFileChecker,
+    SupinfoChecker,
+    TrailingWhitespaceChecker,
+    UnaryOpSpaceChecker,
+]
+
+
+def create_checkers(issue_handler):
+    return [checker(issue_handler) for checker in CHECKER_CLASSES]
+
+
+def get_argument_parser():
     descr = 'Check your C programs against the "EPITECH norm".'
     epilog = COPYRIGHT
     formatter = argparse.RawDescriptionHelpFormatter
@@ -4760,8 +4792,9 @@ def get_argument_parser(checkers):
                         action='store_true',
                         help="list available checkers")
 
-    for checker in checkers:
-        checker.create_argument_group(parser)
+    for checker in CHECKER_CLASSES:
+        if getattr(checker, 'create_argument_group', None):
+            checker.create_argument_group(parser)
 
     return parser
 
@@ -4783,38 +4816,6 @@ def colorize(style_name, string, bold=False):
                                    stop=False)
     color = get_color_code(style_name)
     return colorize_string_csi(color + 90, string)
-
-
-def create_checkers(issue_handler):
-    checker_classes = [
-        BinaryOpSpaceChecker,
-        BraceChecker,
-        CallChecker,
-        CommaChecker,
-        CommentChecker,
-        DeclarationChecker,
-        DeclaratorAlignmentChecker,
-        DeclaratorChecker,
-        DirectiveIndentationChecker,
-        EmptyLineChecker,
-        EmptyLineInFunctionChecker,
-        FunctionCountChecker,
-        FunctionLengthChecker,
-        HeaderChecker,
-        HeaderCommentChecker,
-        IndentationChecker,
-        KeywordSpaceChecker,
-        LineLengthChecker,
-        NameChecker,
-        OneStatementByLineChecker,
-        ParenChecker,
-        ReturnChecker,
-        SourceFileChecker,
-        SupinfoChecker,
-        TrailingWhitespaceChecker,
-        UnaryOpSpaceChecker,
-    ]
-    return [c(issue_handler) for c in checker_classes]
 
 
 def _empty_file_issue(path, issue_handler):
@@ -4893,15 +4894,8 @@ class Program:
     The main program
     """
 
-    def __init__(self):
+    def __init__(self, options):
         checkers = create_checkers(self._add_issue)
-
-        argument_parser = get_argument_parser(checkers)
-
-        options = argument_parser.parse_args()
-        if options.list_checkers:
-            self._list_checkers(checkers)
-            sys.exit(0)
 
         self.options = options
 
@@ -4930,10 +4924,6 @@ class Program:
             if checker.get_class_short_name() == name:
                 return checker
         return None
-
-    def _list_checkers(self, checkers):
-        for checker in checkers:
-            print(checker.get_class_short_name())
 
     def _add_issue(self, issue):
         assert isinstance(issue, StyleIssue)
@@ -5088,8 +5078,21 @@ class Program:
         self._add_issues(issues)
 
 
+def list_checkers():
+    checkers = create_checkers(None)
+    for checker in checkers:
+        print(checker.get_class_short_name())
+
+
 def main():
-    program = Program()
+    argument_parser = get_argument_parser()
+    options = argument_parser.parse_args()
+
+    if options.list_checkers:
+        list_checkers()
+        return
+
+    program = Program(options)
     program.check()
     program.print_issues()
     error_count = len([e for e in program.issues if e.level == 'error'])
