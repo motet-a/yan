@@ -1,8 +1,11 @@
 language: python
+
 python:
   - "3.2"
   - "3.3"
   - "3.4"
   - "3.5"
-# command to run tests
-script: python3 -m unittest test && ./test_on_real_projects.sh
+
+install: "pip3 install -r requirements.txt"
+
+script: pep8 *.py && python3 -m unittest test && ./test_on_real_projects.sh

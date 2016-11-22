@@ -995,7 +995,6 @@ class ParameterExpr(AbstractDeclarationExpr):
         return decls[0]
 
 
-
 class StatementExpr(Expr):
     def __init__(self, expression, semicolon):
         if expression is not None:
@@ -3083,7 +3082,6 @@ class Parser(TokenReader):
             for decl in declarators.children:
                 self._add_type_from_declarator(decl)
         return DeclarationExpr(type_expr, declarators, semicolon)
-
 
     def _parse_declaration_list(self):
         declarations = []
