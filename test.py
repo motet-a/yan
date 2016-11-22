@@ -508,9 +508,23 @@ class TestFiles(unittest.TestCase):
 
     def test_line_too_long(self):
         test_file('line_too_long',
-                  "Too long line (more than 80 characters)")
+                  'Too long line (more than 80 columns)')
         test_file('line_too_long_in_comment',
-                  "Too long line (more than 80 characters)")
+                  'Too long line (more than 80 columns)')
+
+    def test_79_columns_line(self):
+        test_file('79_columns_line')
+
+    def test_80_columns_line(self):
+        test_file('80_columns_line',
+                  [
+                      'The offical style checker seems to forbid lines '
+                      'of 80 columns'
+                  ] * 2)
+
+    def test_81_columns_line(self):
+        test_file('81_columns_line',
+                  ['Too long line (more than 80 columns)'] * 2)
 
     def test_multiple_statements_by_line(self):
         test_file('many_statements_by_line_0',

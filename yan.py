@@ -3665,7 +3665,7 @@ class StyleChecker:
         """
         Returns the visible width in the given string.
 
-        indent_string: A string constitued of spaces and tabs.
+        indent_string: A string constitued of spaces and tabs only.
         position: Only used to raise some errors
         """
         column = visible_column
@@ -3811,8 +3811,24 @@ class LineLengthChecker(LineChecker):
         super().__init__(issue_handler)
 
     def check_line(self, begin, line, end):
-        if len(line) > 80:
-            self.error("Too long line (more than 80 characters)", end)
+        # TODO: We should treat tabs as spaces here.
+
+        length = self.get_visible_width(line, begin)
+
+        if length == 80:
+            # The behavior of the official style checker seems to have
+            # changed during the 2016 pool. It seems to raise an error
+            # in this case, even if the style guide say 80 columns are
+            # OK. It's an inconsistency.
+            #
+            # Since it can lower a grade down, it's a better idea to
+            # raise an error than a warning.
+
+            self.error('The offical style checker seems to forbid lines '
+                       'of 80 columns', end)
+
+        elif length > 80:
+            self.error('Too long line (more than 80 columns)', end)
 
 
 class EmptyLineChecker(LineChecker):
