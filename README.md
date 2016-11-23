@@ -97,7 +97,10 @@ contains headers in some cases.
 
 ## Run the tests
 
-Use `./test.py` or `python3 -m unittest test.py`.
+To run all the tests, use `./test.sh`.
+
+You can run the unit tests with `./test.py` or `python3 -m unittest
+test.py`.
 
 The script `test_on_real_projects.sh` fetches a few Git repositories
 of EPITECH projects and checks their sources with Yan.

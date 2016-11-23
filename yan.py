@@ -11,6 +11,7 @@ import os
 import re
 import sys
 
+VERSION = '0.1.1'
 
 COPYRIGHT = """
 Copyright © 2016 Antoine Motet <antoine.motet@epitech.eu>
@@ -4791,6 +4792,10 @@ def get_argument_parser():
     parser.add_argument('--list-checkers',
                         action='store_true',
                         help="list available checkers")
+
+    parser.add_argument('--version',
+                        action='version',
+                        version='Yan ' + VERSION)
 
     for checker in CHECKER_CLASSES:
         if getattr(checker, 'create_argument_group', None):
