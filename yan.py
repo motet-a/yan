@@ -4967,8 +4967,19 @@ class Program:
         """
         line = self._get_line_at(position)
         left = line[:position.column - 1]
+
+        if not len(self.checkers):
+            return 1
+
         # XXX: hack hack hack
-        return self.checkers[0].get_visible_width(left, position)
+        #
+        # Since get_visible_width() can add an issue in some case, we
+        # have to copy the issue list and restore it later to avoid
+        # any side effects (bug #6).
+        issues = self._issues[:]
+        width = self.checkers[0].get_visible_width(left, position)
+        self._issues = issues
+        return width
 
     def print_issue(self, issue):
         if not self.options.warn and issue.level == 'warn':
