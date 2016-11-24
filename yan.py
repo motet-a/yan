@@ -3589,7 +3589,6 @@ class StyleChecker:
 
     def __init__(self, issue_handler):
         self._issue_handler = issue_handler
-        self.tab_width = StyleChecker.DEFAULT_TAB_WIDTH
         self.indent_chars = ' \t'
 
     @classmethod
@@ -3614,7 +3613,7 @@ class StyleChecker:
         return source_tokens[0].begin.file_name
 
     def configure_all(self, options):
-        self.tab_width = options.width
+        self.tab_width = options.tab_width
         self.configure(options)
 
     def configure(self, options):
@@ -3921,11 +3920,10 @@ class TrailingWhitespaceChecker(LineChecker):
 
 class HeaderCommentChecker(StyleChecker):
     def __init__(self, issue_handler):
-        self.username_check_enabled = False
         super().__init__(issue_handler)
 
     def configure(self, options):
-        self.username_check_enabled = options.header_username
+        self.username_check_enabled = options.username_check_enabled
 
     @staticmethod
     def create_argument_group(parser):
@@ -4779,14 +4777,12 @@ def get_argument_parser():
         StyleChecker.DEFAULT_TAB_WIDTH)
     parser.add_argument('--tab-width',
                         action='store',
-                        default=StyleChecker.DEFAULT_TAB_WIDTH,
                         type=int,
                         help=help_str)
 
     parser.add_argument('--disable-checker',
                         action='append',
                         metavar='CHECKER_NAME',
-                        default=[],
                         help="disable a checker")
 
     parser.add_argument('--list-checkers',
@@ -4899,27 +4895,27 @@ class Program:
     The main program
     """
 
-    def __init__(self, options):
+    def __init__(self, config):
         checkers = create_checkers(self._add_issue)
 
-        self.options = options
+        self.config = config
 
-        for name in self.options.disable_checker:
+        for name in self.config.disable_checkers:
             checker = self._find_checker_by_name(checkers, name)
             if checker is None:
                 raise Exception('Unknown checker {!r}'.format(name))
             checkers.remove(checker)
 
         for checker in checkers:
-            checker.configure(options)
+            checker.configure_all(config)
 
         self.checkers = checkers
 
         self._issues = []
-        self.include_dirs = options.include_dir
+        self.include_dirs = config.include_dirs
         if self.include_dirs is None:
             self.include_dirs = []
-        self.verbose = options.verbose
+        self.verbose = config.verbose
         self.colors = os.isatty(sys.stdout.fileno())
         self.sources = {}
         self._included_file_cache = IncludedFileCache()
@@ -4982,7 +4978,7 @@ class Program:
         return width
 
     def print_issue(self, issue):
-        if not self.options.warn and issue.level == 'warn':
+        if not self.config.warn and issue.level == 'warn':
             return
 
         bold = issue.level != 'note'
@@ -5023,7 +5019,7 @@ class Program:
         return [self._issue_to_dict(i) for i in self._issues]
 
     def print_issues(self):
-        if self.options.json:
+        if self.config.json:
             import json
             print(json.dumps(self._issues_to_dict()))
             return
@@ -5035,10 +5031,10 @@ class Program:
         return self._issues[:]
 
     def check(self):
-        if len(self.options.source_files) == 0:
+        if len(self.config.source_files) == 0:
             print('No input files')
             return
-        for path in self.options.source_files:
+        for path in self.config.source_files:
             self.check_file_or_dir(path)
 
     def check_file_or_dir(self, path, include_dirs=None):
@@ -5060,7 +5056,7 @@ class Program:
         return colorize(style_name, string, bold)
 
     def _check_dir(self, path, include_dirs):
-        if not self.options.json:
+        if not self.config.json:
             message = 'checking directory {!r}'.format(path)
             print(self._colorize('blue', message))
         include_dirs += get_include_dirs_from_makefile(path)
@@ -5100,15 +5096,89 @@ def list_checkers():
         print(checker.get_class_short_name())
 
 
-def main():
-    argument_parser = get_argument_parser()
-    options = argument_parser.parse_args()
+def copy_argparse_namespace(ns):
+    return argparse.Namespace(**vars(ns))
 
-    if options.list_checkers:
+
+def filter_config_through_yanrc(config, yanrc_path='.yanrc'):
+    config = copy_argparse_namespace(config)
+
+    if not os.path.exists(yanrc_path):
+        return config
+
+    with open(yanrc_path, 'r') as f:
+        content = f.read()
+        globals_ = {'config': config}
+
+        try:
+            exec(content, globals_)
+        except Exception as e:
+            import traceback
+
+            tb = sys.exc_info()[2]
+            tb_list = traceback.format_list(traceback.extract_tb(tb)[1:])
+
+            print('\nTraceback (most recent call last):')
+
+            def print_traceback_line(line):
+                print(line.replace('<module>', '".yanrc"'))
+
+            for line in tb_list:
+                print_traceback_line(line)
+
+            print(type(e).__name__ + ':', e)
+            sys.exit(os.EX_DATAERR)
+
+        # In the case where `config` is reassigned in the `.yanrc`...
+        config = globals_['config']
+
+    return config
+
+
+def filter_config_through_cli_args(config):
+    argument_parser = get_argument_parser()
+    argument_parser.set_defaults(
+        disable_checker=config.disable_checkers,
+        header_username=config.username_check_enabled,
+        include_dir=config.include_dirs,
+        tab_width=config.tab_width,
+        warn=config.warn,
+    )
+
+    cli = argument_parser.parse_args()
+
+    return argparse.Namespace(
+        disable_checkers=cli.disable_checker,
+        exclude_patterns=config.exclude_patterns,
+        include_dirs=cli.include_dir,
+        json=cli.json,
+        list_checkers=cli.list_checkers,
+        username_check_enabled=cli.header_username,
+        verbose=cli.verbose,
+        source_files=cli.source_files,
+        tab_width=cli.tab_width,
+        warn=cli.warn,
+    )
+
+
+def main():
+    config = argparse.Namespace(
+        exclude_patterns=[],
+        include_dirs=[],
+        warn=False,
+        json=False,
+        disable_checkers=[],
+        tab_width=StyleChecker.DEFAULT_TAB_WIDTH,
+        username_check_enabled=False)
+
+    config = filter_config_through_yanrc(config, yanrc_path='.yanrc')
+    config = filter_config_through_cli_args(config)
+
+    if config.list_checkers:
         list_checkers()
         return
 
-    program = Program(options)
+    program = Program(config)
     program.check()
     program.print_issues()
     error_count = len([e for e in program.issues if e.level == 'error'])

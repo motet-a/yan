@@ -463,6 +463,16 @@ def test_file(test_name, error_messages=None):
         error_messages.remove(issue.message)
 
     checkers = yan.create_checkers(handle_issue)
+
+    from argparse import Namespace
+    config = Namespace(
+        tab_width=8,
+        username_check_enabled=False,
+    )
+
+    for checker in checkers:
+        checker.configure_all(config)
+
     file_path = 'test/' + test_name
     if not file_path.endswith('.h'):
         file_path += '.c'
