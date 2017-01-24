@@ -656,5 +656,12 @@ class TestFiles(unittest.TestCase):
         test_file('empty_line_3', 'Unexpected empty line')
         test_file('empty_line_4', 'Unexpected empty line')
 
+    def test_sizeof(self):
+        test_file('sizeof_invalid_0',
+                  "Expected 0 spaces or tabs between 'sizeof' and '('")
+        test_file('sizeof_invalid_1',
+                  "Expected one space between 'sizeof' and 'a'")
+        test_file('sizeof_valid')
+
 if __name__ == '__main__':
     unittest.main()

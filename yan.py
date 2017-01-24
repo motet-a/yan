@@ -4090,6 +4090,10 @@ class KeywordSpaceChecker(StyleChecker):
             if token.kind != 'keyword':
                 continue
             next_token = self.get_next_token(pp_tokens, i)
+            if token.string == 'sizeof':
+                margin = 0 if next_token.string == '(' else ' '
+                self.check_margin(source, token, margin, next_token)
+                continue
             if token.string in need_one_space:
                 self.check_margin(source, token, ' ', next_token)
 
