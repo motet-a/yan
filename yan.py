@@ -5111,8 +5111,9 @@ def main():
     program = Program(options)
     program.check()
     program.print_issues()
-    error_count = len([e for e in program.issues if e.level == 'error'])
-    sys.exit(os.EX_OK if error_count == 0 else os.EX_DATAERR)
+    errors = [e for e in program.issues
+              if e.level == 'error' or e.level == 'syntax-error']
+    sys.exit(os.EX_OK if len(errors) == 0 else os.EX_DATAERR)
 
 
 if __name__ == '__main__':
