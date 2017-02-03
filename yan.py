@@ -3614,7 +3614,7 @@ class StyleChecker:
         return source_tokens[0].begin.file_name
 
     def configure_all(self, options):
-        self.tab_width = options.width
+        self.tab_width = options.tab_width
         self.configure(options)
 
     def configure(self, options):
@@ -4915,7 +4915,7 @@ class Program:
             checkers.remove(checker)
 
         for checker in checkers:
-            checker.configure(options)
+            checker.configure_all(options)
 
         self.checkers = checkers
 
