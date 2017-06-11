@@ -1925,10 +1925,18 @@ def _get_system_header_types():
         'stdio.h':      stddef + ' FILE',
         'stdlib.h':     stddef + ' div_t ldiv_t',
         'string.h':     stddef,
+        'strings.h':    stddef,
+        'netdb.h':    '',
+        'sys/socket.h':    'socklen_t',
+        'netinet/in.h': '',
+        'arpa/inet.h':    '',
+        'ctype.h':    '',
+        'sys/select.h': 'fd_set',
         'termios.h':    'pid_t',
         'time.h':       stddef + ' clock_t time_t',
         'unistd.h':     stddef + ' ssize_t',
         'sys/stat.h':   '',
+        'error.h':   '',
         'sys/types.h':  sys_types,
     }
     return {h: types.split() for h, types in strings.items()}
