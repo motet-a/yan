@@ -7,7 +7,7 @@
 **Yan** stands for "Yet another *norminette*". This is a C brace style
 checker written in Python designed for the EPITECH style.
 
-But unlike the "official" one, this style checker is not a buch of crappy
+But unlike the "official" one, this style checker is not a bunch of crappy
 regex getting so easily confused.
 Yan is based on a carefully designed tokenizer and an authentic
 hand-written recursive descent parser.
