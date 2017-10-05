@@ -1,4 +1,11 @@
-# Yan — Yet another norminette
+# Deprecated :upside_down_face:
+
+The EPITECH style guide [got a major update](#8) promoting more modern 
+practices as of October 2017.
+Feel free to contact me or to open an issue if you are interested in 
+updating or reusing this project.
+
+-------------------------------------------------------------------------
 
 [![Build Status](https://travis-ci.org/motet-a/yan.svg?branch=master)](https://travis-ci.org/motet-a/yan)
 
