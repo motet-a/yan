@@ -1,6 +1,6 @@
 # Deprecated :upside_down_face:
 
-The EPITECH style guide [got a major update](#8) promoting more modern 
+The EPITECH style guide [got a major update](https://github.com/motet-a/yan/issues/8) promoting more modern 
 practices as of October 2017.
 Feel free to contact me or to open an issue if you are interested in 
 updating or reusing this project.
